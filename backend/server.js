@@ -19,17 +19,20 @@ const app = express();
 // Add security headers with helmet
 app.use(helmet());
 
-// Configure CORS
-const allowedOrigins = [
-    'http://localhost:3000',
-    'https://bhandari-sugar.vercel.app',
-    process.env.FRONTEND_URL
-].filter(Boolean);
+// Trust Render/Vercel proxy — required for rate limiting and correct IP detection
+app.set('trust proxy', 1);
 
+// Configure CORS — allow localhost and all *.vercel.app deployments
 const corsOptions = {
     origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, Postman, curl)
-        if (!origin || allowedOrigins.includes(origin)) {
+        // Allow: no origin (mobile/Postman), localhost, any vercel.app URL, or FRONTEND_URL env
+        const allowed =
+            !origin ||
+            origin === 'http://localhost:3000' ||
+            /^https:\/\/[\w-]+\.vercel\.app$/.test(origin) ||
+            (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL);
+
+        if (allowed) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));

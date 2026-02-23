@@ -1,6 +1,11 @@
 const { Pool } = require('pg');
 const path = require('path');
 const logger = require('./utils/logger');
+
+// Force IPv4 DNS resolution — prevents Supabase ENETUNREACH over IPv6
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 // Support both DATABASE_URL (Render/Supabase) and individual vars (local dev)
