@@ -11,12 +11,22 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Categories Table
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    default_weight DECIMAL(10, 2) NOT NULL DEFAULT 50.00,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Customers Table
 CREATE TABLE customers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     mobile VARCHAR(15) UNIQUE NOT NULL,
     address TEXT,
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -28,6 +38,7 @@ CREATE TABLE delivery_sheets (
     truck_number VARCHAR(50) NOT NULL,
     date DATE NOT NULL DEFAULT CURRENT_DATE,
     status VARCHAR(50) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted', 'billed')),
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -69,6 +80,7 @@ CREATE TABLE invoices (
     discount_value DECIMAL(10, 2) DEFAULT NULL,
     discount_amount DECIMAL(12, 2) DEFAULT 0.00,
     status VARCHAR(50) NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid', 'partial', 'paid')),
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -101,11 +113,47 @@ CREATE TABLE payment_adjustments (
 -- Tracks inventory changes.
 CREATE TABLE stock_movements (
     id SERIAL PRIMARY KEY,
-    category VARCHAR(50) NOT NULL CHECK (category IN ('medium', 'super_small')),
+    category VARCHAR(50) NOT NULL, -- Dynamic category names
     movement_type VARCHAR(50) NOT NULL CHECK (movement_type IN ('factory_in', 'delivery_out', 'godown_in')),
     bags INTEGER NOT NULL,
     reference_type VARCHAR(50), -- e.g., 'delivery_sheet', 'purchase'
     reference_id INTEGER, -- ID of the related record
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Audit Logs Table
+CREATE TABLE audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),
+    action VARCHAR(255) NOT NULL,
+    entity_type VARCHAR(255),
+    entity_id INTEGER,
+    details JSONB,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Financial Years Table
+CREATE TABLE financial_years (
+    id SERIAL PRIMARY KEY,
+    year_label VARCHAR(50) UNIQUE NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    is_soft_locked BOOLEAN DEFAULT FALSE,
+    is_closed BOOLEAN DEFAULT FALSE,
+    closed_at TIMESTAMP,
+    closed_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Financial Year Summary Table
+CREATE TABLE financial_year_summary (
+    id SERIAL PRIMARY KEY,
+    financial_year_id INTEGER REFERENCES financial_years(id) ON DELETE CASCADE,
+    total_sales DECIMAL(15, 2) DEFAULT 0.00,
+    total_discount DECIMAL(15, 2) DEFAULT 0.00,
+    total_gst_collected DECIMAL(15, 2) DEFAULT 0.00,
+    total_payments DECIMAL(15, 2) DEFAULT 0.00,
+    total_pending DECIMAL(15, 2) DEFAULT 0.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -120,3 +168,5 @@ CREATE INDEX idx_payments_payment_date ON payments(payment_date);
 CREATE INDEX idx_payments_customer_id ON payments(customer_id);
 CREATE INDEX idx_payments_customer_payment_date ON payments(customer_id, payment_date);
 CREATE INDEX idx_payment_adjustments_invoice ON payment_adjustments(invoice_id);
+CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp);
+CREATE INDEX idx_financial_years_dates ON financial_years(start_date, end_date);
