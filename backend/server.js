@@ -19,7 +19,7 @@ const app = express();
 // Add security headers with helmet
 app.use(helmet());
 
-// Trust Render/Vercel proxy — required for rate limiting and correct IP detection
+// Trust Railway/Vercel proxy — required for rate limiting and correct IP detection
 app.set('trust proxy', 1);
 
 // Configure CORS — allow localhost and all *.vercel.app deployments
