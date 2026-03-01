@@ -13,3 +13,6 @@ setup-*.js
 simulate-*.js
 verify_*.txt
 tmpclaude-*
+fly.toml
+railway.toml
+render.yaml
