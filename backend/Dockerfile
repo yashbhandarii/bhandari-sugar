@@ -5,13 +5,14 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Copy package files first (for layer caching)
-COPY package*.json ./
+# Note: build context is repo root, so we reference backend/ explicitly
+COPY backend/package*.json ./
 
 # Install only production dependencies
 RUN npm install --omit=dev
 
-# Copy the rest of the app
-COPY . .
+# Copy the backend source code
+COPY backend/ .
 
 # Expose port
 EXPOSE 5000
