@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log*
+.env
+.env.*
+backups/
+scripts/
+*.log
+*.txt
+debug-*
+test_*
+seed-*.js
+setup-*.js
+simulate-*.js
+verify_*.txt
+tmpclaude-*
