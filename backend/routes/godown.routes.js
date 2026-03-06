@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const godownController = require('../controllers/godown.controller');
 const authMiddleware = require('../middleware/auth.middleware');
+const { validateGodownStock, validateGodownInvoice, validateGodownPayment } = require('../middleware/validation.middleware');
 
 // Protect all routes
 router.use(authMiddleware.verifyToken);
@@ -24,9 +25,9 @@ router.get('/reports/pending', godownController.getPendingInvoices);
 router.get('/reports/all-invoices', godownController.getAllInvoices);
 
 // Admin/Manager only actions
-router.post('/stock', restrictToPrivileged, godownController.addStock);
-router.post('/invoices', restrictToPrivileged, godownController.createInvoice);
-router.post('/payments', restrictToPrivileged, godownController.addPayment);
+router.post('/stock', restrictToPrivileged, validateGodownStock, godownController.addStock);
+router.post('/invoices', restrictToPrivileged, validateGodownInvoice, godownController.createInvoice);
+router.post('/payments', restrictToPrivileged, validateGodownPayment, godownController.addPayment);
 router.get('/reports/stock', restrictToPrivileged, godownController.getStock);
 
 module.exports = router;

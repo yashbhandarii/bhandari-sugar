@@ -14,9 +14,9 @@ router.get('/:id', customerController.getCustomerById);
 
 const { validateCustomer } = require('../middleware/validation.middleware');
 
-// POST /api/customers - Create/Update/Delete (Manager Only)
+// POST /api/customers - Create/Update/Delete
 router.post('/', checkRole(['manager', 'owner']), validateCustomer, customerController.createCustomer);
 router.put('/:id', checkRole(['manager', 'owner']), customerController.updateCustomer); // Ensure updateCustomer exists in customerController
-router.delete('/:id', checkRole(['manager', 'owner']), customerController.deleteCustomer); // Ensure deleteCustomer exists in customerController
+router.delete('/:id', checkRole(['owner']), customerController.deleteCustomer); // Restrict delete to owner only
 
 module.exports = router;

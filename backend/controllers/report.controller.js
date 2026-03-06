@@ -110,7 +110,8 @@ exports.getMonthReport = async (req, res) => {
  */
 exports.getTodayCashCollection = async (req, res) => {
     try {
-        const data = await advancedReportService.getTodayCashCollection();
+        const { date } = req.query; // optional — defaults to today in service
+        const data = await advancedReportService.getTodayCashCollection(date || null);
         res.json(data);
     } catch (error) {
         console.error('Error fetching today cash collection:', error);
@@ -208,6 +209,9 @@ exports.downloadReport = async (req, res) => {
         let data = [];
         let dateRange = '';
         let reportTitle = '';
+        let summary = null;
+        let pdfOpts = null; // Used for custom formats like customer-ledger
+        const pdfService = require('../services/pdf.service');
 
         // Legacy report types
         if (type === 'day') {
@@ -228,7 +232,21 @@ exports.downloadReport = async (req, res) => {
         }
 
         // Advanced report types
-        else if (type === 'aging') {
+        else if (type === 'today-cash') {
+            const cashData = await advancedReportService.getTodayCashCollection(date || null);
+            reportTitle = "Today's Cash Collection";
+            dateRange = cashData.date;
+            summary = { total_cash_collected: cashData.total_cash_collected };
+            data = cashData.data.map(row => ({
+                customer_name: row.customer_name,
+                invoice_id: row.invoice_id ? `#${row.invoice_id}` : '-',
+                payment_amount: row.payment_amount,
+                remaining_pending: row.remaining_pending,
+                last_invoice_date: row.last_invoice_date
+                    ? new Date(row.last_invoice_date).toLocaleDateString('en-IN')
+                    : '-'
+            }));
+        } else if (type === 'aging') {
             const agingData = await advancedReportService.getAgingReport();
             reportTitle = 'Aging Report';
             dateRange = new Date().toISOString().split('T')[0];
@@ -257,18 +275,66 @@ exports.downloadReport = async (req, res) => {
             const period = req.query.period || (date ? 'day' : 'month');
             const customerData = await advancedReportService.getCustomerSummary(period, date);
             reportTitle = 'Customer Summary Report';
-            dateRange = customerData.start_date + ' to ' + customerData.end_date;
-            data = customerData.data;
+        } else if (type === 'customer-ledger') {
+            const customerId = req.query.customerId;
+            if (!customerId) return res.status(400).json({ error: 'customerId required for ledger' });
+
+            const db = require('../db');
+            const custRes = await db.query('SELECT * FROM customers WHERE id = $1', [customerId]);
+            if (custRes.rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+
+            const customer = custRes.rows[0];
+
+            // Get Payments
+            const payRes = await db.query('SELECT * FROM payments WHERE customer_id = $1', [customerId]);
+            const payments = payRes.rows.map(p => ({
+                date: p.payment_date,
+                type: 'payment',
+                subType: p.payment_method,
+                amount: parseFloat(p.amount),
+                credit: parseFloat(p.amount),
+                debit: 0,
+                created_at: p.created_at
+            }));
+
+            // Get Invoices
+            const invRes = await db.query('SELECT * FROM invoices WHERE customer_id = $1 AND is_deleted = false', [customerId]);
+            const invoices = invRes.rows.map(i => ({
+                date: i.created_at,
+                type: 'invoice',
+                subType: `Sheet #${i.delivery_sheet_id}`,
+                amount: parseFloat(i.total_amount),
+                credit: 0,
+                debit: parseFloat(i.total_amount),
+                created_at: i.created_at
+            }));
+
+            // Merge and Sort by Date (Oldest First)
+            const all = [...payments, ...invoices].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // Calculate Running Balance
+            let runningBalance = 0;
+            const ledger = all.map(txn => {
+                runningBalance = runningBalance + txn.debit - txn.credit;
+                return { ...txn, balance: runningBalance };
+            });
+
+            reportTitle = 'Customer Statement';
+            dateRange = 'All Time';
+            data = {
+                customer: customer,
+                transactions: ledger,
+                final_balance: runningBalance
+            };
+            pdfOpts = { reportType: reportTitle, dateRange, customerData: data };
+
         } else {
             return res.status(400).json({ error: 'Invalid report type' });
         }
 
-        const pdfService = require('../services/pdf.service');
-        pdfService.generateReportPDF({
-            reportType: reportTitle,
-            dateRange: dateRange,
-            items: data
-        }, res);
+        const optsToPass = pdfOpts || { reportType: reportTitle, dateRange, items: data, summary };
+
+        pdfService.generateReportPDF(optsToPass, res);
 
     } catch (error) {
         console.error('Error generating PDF:', error);

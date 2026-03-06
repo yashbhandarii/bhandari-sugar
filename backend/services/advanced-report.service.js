@@ -15,8 +15,8 @@ const db = require('../db');
  * Return: Customer Name, Invoice ID, Payment Amount,
  *         Remaining Pending, Last Invoice Date, Total Today
  */
-exports.getTodayCashCollection = async () => {
-    const today = new Date().toISOString().split('T')[0];
+exports.getTodayCashCollection = async (dateParam = null) => {
+    const today = dateParam || new Date().toISOString().split('T')[0];
 
     const query = `
         SELECT 
@@ -98,18 +98,28 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
             SELECT 
                 c.id,
                 c.name as customer_name,
-                COALESCE(SUM(i.total_amount), 0) as total_sales,
-                COALESCE(SUM(p.amount), 0) as total_paid,
-                COALESCE(SUM(pa.amount), 0) as total_adj,
-                COALESCE(SUM(i.total_amount), 0) - COALESCE(SUM(p.amount), 0) - COALESCE(SUM(pa.amount), 0) as total_pending
+                COALESCE((
+                    SELECT SUM(i.total_amount) FROM invoices i
+                    WHERE i.customer_id = c.id AND i.is_deleted = false
+                      AND i.created_at::DATE = $1::DATE
+                ), 0) as total_sales,
+                COALESCE((
+                    SELECT SUM(p.amount) FROM payments p
+                    WHERE p.customer_id = c.id
+                      AND p.payment_date = $1::DATE
+                ), 0) as total_paid,
+                COALESCE((
+                    SELECT SUM(pa.amount) FROM payment_adjustments pa
+                    JOIN invoices i ON pa.invoice_id = i.id
+                    WHERE i.customer_id = c.id AND i.created_at::DATE = $1::DATE
+                ), 0) as total_adj
             FROM customers c
-            LEFT JOIN invoices i ON c.id = i.customer_id 
-                AND ${dateFilter}
-            LEFT JOIN payments p ON c.id = p.customer_id
-                AND p.payment_date = $1::DATE
-            LEFT JOIN payment_adjustments pa ON i.id = pa.invoice_id
-            GROUP BY c.id, c.name
-            HAVING COALESCE(SUM(i.total_amount), 0) > 0
+            WHERE c.is_deleted = false
+              AND EXISTS (
+                SELECT 1 FROM invoices i
+                WHERE i.customer_id = c.id AND i.is_deleted = false
+                  AND i.created_at::DATE = $1::DATE
+              )
             ORDER BY c.name;
         `;
         params = [startStr];
@@ -118,31 +128,48 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
             SELECT 
                 c.id,
                 c.name as customer_name,
-                COALESCE(SUM(i.total_amount), 0) as total_sales,
-                COALESCE(SUM(p.amount), 0) as total_paid,
-                COALESCE(SUM(pa.amount), 0) as total_adj,
-                COALESCE(SUM(i.total_amount), 0) - COALESCE(SUM(p.amount), 0) - COALESCE(SUM(pa.amount), 0) as total_pending
+                COALESCE((
+                    SELECT SUM(i.total_amount) FROM invoices i
+                    WHERE i.customer_id = c.id AND i.is_deleted = false
+                      AND i.created_at::DATE >= $1::DATE AND i.created_at::DATE <= $2::DATE
+                ), 0) as total_sales,
+                COALESCE((
+                    SELECT SUM(p.amount) FROM payments p
+                    WHERE p.customer_id = c.id
+                      AND p.payment_date >= $1::DATE AND p.payment_date <= $2::DATE
+                ), 0) as total_paid,
+                COALESCE((
+                    SELECT SUM(pa.amount) FROM payment_adjustments pa
+                    JOIN invoices i ON pa.invoice_id = i.id
+                    WHERE i.customer_id = c.id
+                      AND i.created_at::DATE >= $1::DATE AND i.created_at::DATE <= $2::DATE
+                ), 0) as total_adj
             FROM customers c
-            LEFT JOIN invoices i ON c.id = i.customer_id 
-                AND ${dateFilter}
-            LEFT JOIN payments p ON c.id = p.customer_id
-                AND p.payment_date >= $1::DATE AND p.payment_date <= $2::DATE
-            LEFT JOIN payment_adjustments pa ON i.id = pa.invoice_id
-            GROUP BY c.id, c.name
-            HAVING COALESCE(SUM(i.total_amount), 0) > 0
+            WHERE c.is_deleted = false
+              AND EXISTS (
+                SELECT 1 FROM invoices i
+                WHERE i.customer_id = c.id AND i.is_deleted = false
+                  AND i.created_at::DATE >= $1::DATE AND i.created_at::DATE <= $2::DATE
+              )
             ORDER BY c.name;
         `;
         params = [startStr, endStr];
     }
 
+
     const result = await db.query(query, params);
 
     const totals = result.rows.reduce(
-        (acc, row) => ({
-            total_sales: acc.total_sales + parseFloat(row.total_sales || 0),
-            total_paid: acc.total_paid + parseFloat(row.total_paid || 0),
-            total_pending: acc.total_pending + parseFloat(row.total_pending || 0)
-        }),
+        (acc, row) => {
+            const sales = parseFloat(row.total_sales || 0);
+            const paid = parseFloat(row.total_paid || 0);
+            const adj = parseFloat(row.total_adj || 0);
+            return {
+                total_sales: acc.total_sales + sales,
+                total_paid: acc.total_paid + paid,
+                total_pending: acc.total_pending + (sales - paid - adj)
+            };
+        },
         { total_sales: 0, total_paid: 0, total_pending: 0 }
     );
 
@@ -156,12 +183,17 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
             total_pending: parseFloat(totals.total_pending.toFixed(2))
         },
         count: result.rows.length,
-        data: result.rows.map(r => ({
-            customer_name: r.customer_name,
-            total_sales: parseFloat(r.total_sales),
-            total_paid: parseFloat(r.total_paid),
-            total_pending: parseFloat(r.total_pending)
-        }))
+        data: result.rows.map(r => {
+            const sales = parseFloat(r.total_sales || 0);
+            const paid = parseFloat(r.total_paid || 0);
+            const adj = parseFloat(r.total_adj || 0);
+            return {
+                customer_name: r.customer_name,
+                total_sales: sales,
+                total_paid: paid,
+                total_pending: parseFloat((sales - paid - adj).toFixed(2))
+            };
+        })
     };
 };
 

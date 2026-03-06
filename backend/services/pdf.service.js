@@ -37,6 +37,8 @@ exports.generateReportPDF = (data, res) => {
         generateTodayCashPDF(doc, data);
     } else if (data.reportType === 'Payment Delay Report') {
         generatePaymentDelayPDF(doc, data);
+    } else if (data.reportType === 'Customer Statement') {
+        generateCustomerLedgerPDF(doc, data);
     } else {
         // Legacy format (Day/Week/Month Report)
         generateLegacyReportPDF(doc, data);
@@ -734,3 +736,98 @@ exports.generateGodownInvoicePDF = (invoice, res) => {
 
     doc.end();
 };
+
+/**
+ * Generate Customer Ledger / Statement PDF
+ * @param {Object} doc - PDFDocument instance
+ * @param {Object} data - { reportType, dateRange, customerData: { customer, transactions, final_balance } }
+ */
+function generateCustomerLedgerPDF(doc, data) {
+    const { customer, transactions, final_balance } = data.customerData;
+
+    // Header Meta
+    doc.fontSize(10);
+    doc.font('Helvetica-Bold').text(`Customer: ${customer.name || 'N/A'}`, 50, 135);
+    doc.font('Helvetica').text(`Mobile: ${customer.mobile || 'N/A'}`);
+    doc.text(`Address: ${customer.address || 'N/A'}`);
+    doc.moveDown();
+
+    // Table Setup
+    const tableTop = doc.y + 10;
+    const dateX = 50;
+    const typeX = 130;
+    const detailsX = 200;
+    const debitX = 350;
+    const creditX = 420;
+    const balX = 490;
+
+    // Table Header
+    doc.font('Helvetica-Bold');
+    doc.fontSize(9);
+    doc.text('Date', dateX, tableTop);
+    doc.text('Type', typeX, tableTop);
+    doc.text('Details', detailsX, tableTop);
+    doc.text('Dr (Rs)', debitX, tableTop, { width: 60, align: 'right' });
+    doc.text('Cr (Rs)', creditX, tableTop, { width: 60, align: 'right' });
+    doc.text('Balance', balX, tableTop, { width: 60, align: 'right' });
+
+    doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+
+    let y = tableTop + 25;
+    doc.font('Helvetica');
+    doc.fontSize(9);
+
+    for (const txn of transactions) {
+        if (y > 700) {
+            doc.addPage();
+            y = 50;
+            // Repeat Header
+            doc.font('Helvetica-Bold');
+            doc.text('Date', dateX, y);
+            doc.text('Type', typeX, y);
+            doc.text('Details', detailsX, y);
+            doc.text('Dr (Rs)', debitX, y, { width: 60, align: 'right' });
+            doc.text('Cr (Rs)', creditX, y, { width: 60, align: 'right' });
+            doc.text('Balance', balX, y, { width: 60, align: 'right' });
+            doc.moveTo(50, y + 15).lineTo(550, y + 15).stroke();
+            doc.font('Helvetica');
+            y += 25;
+        }
+
+        const dateStr = new Date(txn.date).toLocaleDateString('en-IN');
+        const typeStr = txn.type === 'invoice' ? 'Invoice' : 'Payment';
+
+        doc.text(dateStr, dateX, y);
+        doc.text(typeStr, typeX, y);
+        doc.text(txn.subType || '-', detailsX, y, { width: 140, ellipsis: true });
+
+        doc.text(txn.debit > 0 ? txn.debit.toFixed(2) : '-', debitX, y, { width: 60, align: 'right' });
+        doc.text(txn.credit > 0 ? txn.credit.toFixed(2) : '-', creditX, y, { width: 60, align: 'right' });
+
+        doc.font('Helvetica-Bold')
+            .text(parseFloat(txn.balance).toFixed(2), balX, y, { width: 60, align: 'right' })
+            .font('Helvetica');
+
+        y += 20;
+    }
+
+    // Final Balance Summary Line
+    doc.moveDown();
+    y += 10;
+    doc.moveTo(300, y).lineTo(550, y).stroke();
+    y += 10;
+
+    doc.font('Helvetica-Bold').fontSize(11);
+    doc.text('Final Balance:', 300, y);
+
+    // Color code balance based on owe vs advance
+    doc.fillColor(final_balance > 0 ? '#C0392B' : (final_balance < 0 ? '#27AE60' : '#000000'));
+    doc.text(`Rs. ${parseFloat(final_balance).toFixed(2)}`, balX - 40, y, { width: 100, align: 'right' });
+
+    doc.fillColor('#000000').font('Helvetica').fontSize(9);
+    const balStatus = final_balance > 0 ? '(Payment Pending from Customer)' : (final_balance < 0 ? '(Advance Received)' : '');
+    if (balStatus) {
+        y += 15;
+        doc.text(balStatus, 300, y, { width: 250, align: 'right' });
+    }
+}

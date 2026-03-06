@@ -2,18 +2,29 @@ const db = require('../db');
 const auditService = require('./audit.service');
 
 /**
- * Get all customers.
+ * Get all customers with optional search.
  * @returns {Promise<Array>} List of customers
  */
-exports.getAllCustomers = async (page = 1, limit = 20) => {
+exports.getAllCustomers = async (page = 1, limit = 20, search = '') => {
     const offset = (page - 1) * limit;
 
+    let whereClause = 'WHERE is_deleted = false';
+    let queryParams = [];
+
+    if (search.trim()) {
+        whereClause += ' AND (name ILIKE $1 OR mobile ILIKE $1)';
+        queryParams.push(`%${search.trim()}%`);
+    }
+
     // Get total count for pagination
-    const countRes = await db.query('SELECT COUNT(*) FROM customers WHERE is_deleted = false');
+    const countRes = await db.query(`SELECT COUNT(*) FROM customers ${whereClause}`, queryParams);
     const total = parseInt(countRes.rows[0].count);
 
     // Get paginated rows
-    const res = await db.query('SELECT * FROM customers WHERE is_deleted = false ORDER BY name ASC LIMIT $1 OFFSET $2', [limit, offset]);
+    const res = await db.query(
+        `SELECT * FROM customers ${whereClause} ORDER BY name ASC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`,
+        [...queryParams, limit, offset]
+    );
 
     return {
         customers: res.rows,
@@ -78,7 +89,7 @@ exports.createCustomerWithAudit = async (data, userId) => {
  * @param {Object} data - { name, mobile, address }
  * @returns {Promise<Object>} Updated customer
  */
-exports.updateCustomer = async (id, data) => {
+exports.updateCustomer = async (id, data, userId) => {
     const { name, mobile, address } = data;
 
     // Validation
@@ -105,7 +116,14 @@ exports.updateCustomer = async (id, data) => {
     if (res.rows.length === 0) {
         throw new Error('Customer not found');
     }
-    return res.rows[0];
+    const updatedCustomer = res.rows[0];
+
+    // Log Audit
+    if (userId) {
+        await auditService.logAction(userId, 'UPDATE', 'CUSTOMER', id, { updated_fields: Object.keys(data) });
+    }
+
+    return updatedCustomer;
 };
 
 /**

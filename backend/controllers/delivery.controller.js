@@ -50,6 +50,19 @@ exports.addItemInDeliverySheet = async (req, res) => {
     }
 };
 
+// Update quantities for an existing delivery item (for re-editing saved bags)
+exports.updateItemInDeliverySheet = async (req, res) => {
+    const { itemId } = req.params;
+    const { quantities } = req.body;
+    try {
+        await deliveryService.updateItemQuantities(itemId, quantities);
+        res.json({ message: 'Item updated successfully' });
+    } catch (error) {
+        console.error('Error updating delivery item:', error);
+        res.status(400).json({ error: error.message || 'Error updating delivery item' });
+    }
+};
+
 // Update delivery sheet rates (draft only)
 exports.updateSheetRates = async (req, res) => {
     const { id } = req.params;
@@ -118,10 +131,27 @@ exports.downloadSheet = async (req, res) => {
 exports.deleteDeliverySheet = async (req, res) => {
     const { id } = req.params;
     try {
-        await deliveryService.deleteDeliverySheet(id, req.userId);
+        await deliveryService.deleteDeliverySheet(id, req.userId, req.userRole);
         res.json({ message: 'Delivery sheet deleted successfully' });
     } catch (error) {
         console.error('Error deleting delivery sheet:', error);
-        res.status(500).json({ error: error.message || 'Internal server error' });
+        const statusCode = error.message.includes('Access denied') ? 403
+            : error.message.includes('Cannot delete') ? 400
+                : 500;
+        res.status(statusCode).json({ error: error.message || 'Internal server error' });
     }
 };
+
+// GET /api/delivery-sheets/stock-summary
+// Returns total bags delivered per category for the active financial year
+exports.getDeliveryStockSummary = async (req, res) => {
+    try {
+        const financialYearService = require('../services/financial_year.service');
+        const summary = await financialYearService.getDeliveryStockSummary();
+        res.json(summary);
+    } catch (error) {
+        console.error('Error fetching delivery stock summary:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch stock summary' });
+    }
+};
+

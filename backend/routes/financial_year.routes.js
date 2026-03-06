@@ -18,4 +18,13 @@ router.post('/', verifyOwner, financialYearController.createYear);
 router.post('/:id/close', verifyOwner, financialYearController.closeYear);
 router.post('/:id/soft-lock', verifyOwner, financialYearController.toggleSoftLock);
 
+// Download full PDF report for any year (owner only)
+router.get('/:id/report', verifyOwner, financialYearController.downloadYearReport);
+
+// Download full JSON export of all year data (owner only)
+router.get('/:id/export-json', verifyOwner, financialYearController.downloadYearJSON);
+
+// Permanently delete all transactional data - IRREVERSIBLE (owner only, year must be closed)
+router.delete('/:id/purge', verifyOwner, financialYearController.purgeYearData);
+
 module.exports = router;

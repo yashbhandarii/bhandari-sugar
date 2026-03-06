@@ -169,6 +169,48 @@ exports.addItemInDeliverySheet = async (data) => {
 };
 
 /**
+ * Update quantities for an existing delivery item (replaces all quantities).
+ * Used when a driver edits already-saved bag numbers.
+ */
+exports.updateItemQuantities = async (itemId, quantities) => {
+    const client = await db.pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Verify item exists and sheet is still draft
+        const itemRes = await client.query(
+            `SELECT di.id, ds.status FROM delivery_items di
+             JOIN delivery_sheets ds ON ds.id = di.delivery_sheet_id
+             WHERE di.id = $1`,
+            [itemId]
+        );
+        if (itemRes.rows.length === 0) throw new Error('Delivery item not found');
+        if (itemRes.rows[0].status !== 'draft') throw new Error('Cannot edit a submitted or billed sheet');
+
+        // Delete existing quantities and re-insert
+        await client.query('DELETE FROM delivery_quantities WHERE delivery_item_id = $1', [itemId]);
+
+        if (quantities && Array.isArray(quantities)) {
+            for (const q of quantities) {
+                if (q.bags > 0) {
+                    await client.query(
+                        'INSERT INTO delivery_quantities (delivery_item_id, category_id, bags) VALUES ($1, $2, $3)',
+                        [itemId, q.category_id, q.bags]
+                    );
+                }
+            }
+        }
+
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+};
+
+/**
  * Get delivery sheet by ID with items.
  * @param {number} id 
  * @returns {Promise<Object|null>}
@@ -314,24 +356,38 @@ exports.submitDeliverySheet = async (id) => {
 };
 
 /**
- * Soft delete a delivery sheet.
+ * Soft delete a delivery sheet (draft only).
+ * Drivers can only delete their own sheets. Managers/owners can delete any draft.
  * @param {number} id 
  * @param {number} userId 
+ * @param {string} userRole
  * @returns {Promise<void>}
  */
-exports.deleteDeliverySheet = async (id, userId) => {
+exports.deleteDeliverySheet = async (id, userId, userRole) => {
     const client = await db.pool.connect();
     try {
         await client.query('BEGIN');
 
         // Check availability
-        const sheetRes = await client.query('SELECT status, date FROM delivery_sheets WHERE id = $1 AND is_deleted = false', [id]);
+        const sheetRes = await client.query('SELECT status, date, created_by FROM delivery_sheets WHERE id = $1 AND is_deleted = false', [id]);
         if (sheetRes.rows.length === 0) {
             throw new Error('Delivery sheet not found');
         }
 
+        const sheet = sheetRes.rows[0];
+
+        // Only allow deletion of draft sheets
+        if (sheet.status !== 'draft') {
+            throw new Error(`Cannot delete a ${sheet.status} delivery sheet. Only draft sheets can be deleted.`);
+        }
+
+        // Drivers can only delete their own sheets
+        if (userRole === 'driver' && sheet.created_by !== userId) {
+            throw new Error('Access denied. You can only delete your own delivery sheets.');
+        }
+
         // STRICT: Ensure we aren't deleting a sheet from a closed financial year
-        await validateTransactionDate(sheetRes.rows[0].date);
+        await validateTransactionDate(sheet.date);
 
         await client.query('UPDATE delivery_sheets SET is_deleted = true WHERE id = $1', [id]);
 

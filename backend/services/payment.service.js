@@ -82,6 +82,24 @@ exports.addPayment = async (data) => {
 
         let invoiceTotals = null;
 
+        // Always compute customer-level totals first (used in both paths)
+        const custInvRes = await client.query(
+            'SELECT COALESCE(SUM(total_amount), 0) as total FROM invoices WHERE customer_id = $1 AND is_deleted = false',
+            [customer_id]
+        );
+        const custPaidRes = await client.query(
+            'SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE customer_id = $1',
+            [customer_id]
+        );
+        const custAdjRes = await client.query(
+            'SELECT COALESCE(SUM(pa.amount), 0) as total FROM payment_adjustments pa JOIN invoices i ON pa.invoice_id = i.id WHERE i.customer_id = $1',
+            [customer_id]
+        );
+        const customer_total_sale = parseFloat(custInvRes.rows[0].total);
+        const customer_total_paid = parseFloat(custPaidRes.rows[0].total);
+        const customer_total_adj = parseFloat(custAdjRes.rows[0].total);
+        const customer_pending = customer_total_sale - customer_total_paid - customer_total_adj;
+
         // STEP 1: Lock and Validate
         if (invoice_id) {
             // Lock the invoice row
@@ -115,30 +133,21 @@ exports.addPayment = async (data) => {
             // STEP 3: Calculate strict pending amount (considering previous discounts)
             const pending = total_amount - total_paid - total_adj;
 
-            // STEP 4: STRICT Validation
+            // STEP 4a: Invoice-level validation — can't overpay this specific invoice
             if (parseFloat(amount) + discountVal > pending + 0.01) {
                 throw new Error(`Total (₹${parseFloat(amount) + discountVal}) exceeds pending amount (₹${pending.toFixed(2)}) for Invoice #${invoice_id}`);
             }
 
+            // STEP 4b: Customer-level validation — total paid can never exceed total sale
+            if (parseFloat(amount) + discountVal > customer_pending + 0.01) {
+                throw new Error(`Payment of ₹${parseFloat(amount) + discountVal} would exceed total outstanding balance (₹${customer_pending.toFixed(2)}) for this customer`);
+            }
+
             invoiceTotals = { total_amount, total_paid, total_adj, pending };
         } else {
-            // Paying on account (no invoice_id) - Lock customer's balance logic
-            const invRes = await client.query('SELECT COALESCE(SUM(total_amount), 0) as total FROM invoices WHERE customer_id = $1', [customer_id]);
-            const total_invoiced = parseFloat(invRes.rows[0].total);
-
-            const paidResBefore = await client.query('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE customer_id = $1', [customer_id]);
-            const total_paid_before = parseFloat(paidResBefore.rows[0].total);
-
-            const adjResBefore = await client.query(
-                'SELECT COALESCE(SUM(pa.amount), 0) as total FROM payment_adjustments pa JOIN invoices i ON pa.invoice_id = i.id WHERE i.customer_id = $1',
-                [customer_id]
-            );
-            const total_adj_before = parseFloat(adjResBefore.rows[0].total);
-
-            const current_pending = total_invoiced - total_paid_before - total_adj_before;
-
-            if (parseFloat(amount) + discountVal > current_pending + 0.01) {
-                throw new Error(`Total (₹${parseFloat(amount) + discountVal}) exceeds total customer pending amount (₹${current_pending.toFixed(2)})`);
+            // Paying on account (no invoice_id) — check customer-level pending
+            if (parseFloat(amount) + discountVal > customer_pending + 0.01) {
+                throw new Error(`Payment of ₹${parseFloat(amount) + discountVal} exceeds total customer outstanding balance (₹${customer_pending.toFixed(2)})`);
             }
         }
 
