@@ -20,7 +20,6 @@ const CustomersPage = () => {
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [totalPages, setTotalPages] = useState(1);
-    const [total, setTotal] = useState(0);
     const limit = 20;
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -48,11 +47,9 @@ const CustomersPage = () => {
             if (res.data.data) {
                 setCustomers(res.data.data);
                 setTotalPages(res.data.meta.totalPages);
-                setTotal(res.data.meta.total);
             } else {
                 // If API returns plain array
                 setCustomers(res.data);
-                setTotal(res.data.length);
             }
         } catch (error) {
             console.error("Error fetching customers", error);

@@ -14,6 +14,7 @@ const DiscountImpactPage = () => {
 
     useEffect(() => {
         fetchReport();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [type, date]);
 
     const fetchReport = async () => {
