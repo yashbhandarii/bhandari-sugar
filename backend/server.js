@@ -1,3 +1,4 @@
+// v3 - PUT items route added
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -79,6 +80,7 @@ app.use('/api/inventory', require('./routes/inventory.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/financial-years', require('./routes/financial_year.routes'));
 app.use('/api/godown', require('./routes/godown.routes'));
+app.use('/api/audit', require('./routes/audit.routes'));
 
 // Basic route for testing
 app.get('/', (req, res) => {

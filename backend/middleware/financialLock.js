@@ -10,10 +10,11 @@ const requireOpenFinancialYear = (dateExtractor = (req) => new Date()) => {
         try {
             const targetDate = new Date(dateExtractor(req)).toISOString().split('T')[0];
 
-            // 1. Fetch the exact financial year matching this target date
+            // 1. Fetch the financial year matching this target date — prefer OPEN years first
             const yearRes = await db.query(
                 `SELECT * FROM financial_years 
-                 WHERE $1::DATE >= start_date AND $1::DATE <= end_date 
+                 WHERE $1::DATE >= start_date AND $1::DATE <= end_date
+                 ORDER BY is_closed ASC
                  LIMIT 1`,
                 [targetDate]
             );
