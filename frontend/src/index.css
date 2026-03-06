@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Global Base ────────────────────────────────────────────── */
+body {
+  margin: 0;
+  font-family: 'Inter', 'Roboto', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #F5F5F5;
+  overscroll-behavior-y: contain;
+  /* Safe area for iPhone notch / home indicator */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* ─── Touch UX ───────────────────────────────────────────────── */
+/* Remove 300ms tap delay on all interactive elements */
+button,
+a,
+input,
+select,
+textarea,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* ─── Number Input: Prevent Scroll Wheel Changes ─────────────── */
+/* Removes browser spinner arrows on number inputs */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Minimum touch target size (44×44px recommended by WCAG) */
+button,
+[role="button"] {
+  min-height: 36px;
+}
+
+/* ─── Custom Scrollbar ───────────────────────────────────────── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #CBD5E0;
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #A0AEC0;
+}
+
+/* ─── Responsive Table → Card (Mobile) ──────────────────────── */
+/*
+  Usage: add className="responsive-table" to the Table wrapper.
+  On screens < 640px, each <tr> becomes a card; <td> shows a
+  "data-label" attribute as a prefix produced by CSS counters.
+*/
+@media (max-width: 639px) {
+  .responsive-table table {
+    border: 0;
+  }
+
+  .responsive-table thead {
+    display: none;
+  }
+
+  .responsive-table tr {
+    display: block;
+    background: #fff;
+    border: 1px solid #E2E8F0;
+    border-radius: 1rem;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #F7FAFC;
+    font-size: 0.875rem;
+    white-space: normal;
+  }
+
+  .responsive-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .responsive-table td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #718096;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  /* Actions cell: stack buttons */
+  .responsive-table td.actions-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
+  .responsive-table td.actions-cell::before {
+    margin-bottom: 0.25rem;
+  }
+}
