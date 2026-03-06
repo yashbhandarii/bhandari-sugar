@@ -23,19 +23,21 @@ app.use(helmet());
 // Trust Railway/Vercel proxy — required for rate limiting and correct IP detection
 app.set('trust proxy', 1);
 
-// Configure CORS — allow localhost and all *.vercel.app deployments
+// Configure CORS — allow localhost, Vercel deployments, and FRONTEND_URL
 const corsOptions = {
     origin: (origin, callback) => {
-        // Allow: no origin (mobile/Postman), localhost, any vercel.app URL, or FRONTEND_URL env
-        const allowed =
-            !origin ||
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        const isAllowed =
             origin === 'http://localhost:3000' ||
-            /^https:\/\/[\w-]+\.vercel\.app$/.test(origin) ||
+            /^https:\/\/.*\.vercel\.app$/.test(origin) ||
             (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL);
 
-        if (allowed) {
+        if (isAllowed) {
             callback(null, true);
         } else {
+            console.warn(`CORS blocked request from origin: ${origin}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -43,6 +45,7 @@ const corsOptions = {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 };
+
 app.use(cors(corsOptions));
 
 // Body parsing middleware
