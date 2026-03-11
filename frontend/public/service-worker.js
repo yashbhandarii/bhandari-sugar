@@ -64,28 +64,43 @@ self.addEventListener('fetch', event => {
                     }
                     return response;
                 })
-                .catch(() => caches.match(request))
+                .catch(() =>
+                    caches.match(request).then(cached =>
+                        cached || new Response(JSON.stringify({ error: 'Offline' }), {
+                            status: 503,
+                            headers: { 'Content-Type': 'application/json' }
+                        })
+                    )
+                )
         );
         return;
     }
 
     // JS/CSS bundles: Always fetch from network (never serve cached JS)
-    if (url.pathname.startsWith('/static/')) {
-        event.respondWith(fetch(request));
+    if (url.pathname.startsWith('/assets/')) {
+        event.respondWith(
+            fetch(request).catch(() =>
+                caches.match(request).then(cached =>
+                    cached || new Response('Offline', { status: 503 })
+                )
+            )
+        );
         return;
     }
 
     // Static Assets (images, icons): Cache First, then Network
     event.respondWith(
         caches.match(request).then(response => {
-            return response || fetch(request).then(fetchRes => {
-                return caches.open(CACHE_NAME).then(cache => {
-                    if (fetchRes.status === 200) {
-                        cache.put(request, fetchRes.clone());
-                    }
-                    return fetchRes;
-                });
-            });
+            if (response) return response;
+            return fetch(request).then(fetchRes => {
+                if (fetchRes.status === 200) {
+                    const cloned = fetchRes.clone();
+                    caches.open(CACHE_NAME).then(cache => {
+                        cache.put(request, cloned);
+                    });
+                }
+                return fetchRes;
+            }).catch(() => new Response('Offline', { status: 503 }));
         })
     );
 });
