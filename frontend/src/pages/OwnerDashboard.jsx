@@ -22,17 +22,14 @@ const OwnerDashboard = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [summaryRes, paymentRes, weeklyRes, riskRes] = await Promise.all([
-                api.get('/dashboard/summary'),
-                api.get('/reports/payment-method-summary'),
-                api.get('/reports/weekly-sales'),
-                api.get('/reports/risky-customers')
-            ]);
+            // Single API call replaces 4 separate calls
+            const res = await api.get('/dashboard/owner-all');
+            const { summary, paymentMethods, weeklySales, riskyCustomers } = res.data;
 
-            setSummary(summaryRes.data);
-            setPaymentMethods(paymentRes.data);
-            setWeeklySales(weeklyRes.data);
-            setRiskyCustomers(riskRes.data);
+            setSummary(summary);
+            setPaymentMethods(paymentMethods);
+            setWeeklySales(weeklySales);
+            setRiskyCustomers(riskyCustomers);
             setLastUpdated(new Date());
         } catch (err) {
             console.error("Error fetching owner dashboard data", err);

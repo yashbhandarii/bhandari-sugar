@@ -23,18 +23,16 @@ const ManagerDashboard = () => {
         setLoading(true);
         setError(null);
         try {
-            // Fetch dashboard summary and pending customers concurrently
-            const [summaryRes, pendingRes] = await Promise.all([
-                api.get('/reports/dashboard'),
-                api.get('/reports/payment-delay')
-            ]);
+            // Single API call replaces 2 separate calls
+            const res = await api.get('/dashboard/manager-all');
+            const { summary, paymentDelay } = res.data;
 
-            setSummary(summaryRes.data);
+            setSummary(summary);
 
             // Check structure from advanced-report.service.js return
-            if (pendingRes.data && pendingRes.data.data) {
-                // Limit to top 5 or 10 for dashboard view
-                setPendingCustomers(pendingRes.data.data.slice(0, 10));
+            if (paymentDelay && paymentDelay.data) {
+                // Limit to top 10 for dashboard view
+                setPendingCustomers(paymentDelay.data.slice(0, 10));
             } else {
                 setPendingCustomers([]);
             }
