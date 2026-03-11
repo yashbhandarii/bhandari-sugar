@@ -1,6 +1,6 @@
 {
     "version": 2,
-    "framework": "create-react-app",
+    "framework": "vite",
     "buildCommand": "cd frontend && npm install && npm run build",
     "outputDirectory": "frontend/build"
 }
