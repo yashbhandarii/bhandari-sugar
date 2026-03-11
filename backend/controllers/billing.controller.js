@@ -1,5 +1,6 @@
 const billingService = require('../services/billing.service');
 const billingValidations = require('../services/billing.validations');
+const { clearCache } = require('../middleware/cache.middleware');
 
 /**
  * Generate invoices with manager-entered rates and optional discounts
@@ -33,6 +34,7 @@ exports.generateInvoices = async (req, res) => {
         }
 
         const result = await billingService.generateInvoices(delivery_sheet_id, req.userId, billingData);
+        clearCache(); // Invalidate report caches
         res.status(201).json(result);
     } catch (error) {
         console.error('Error generating invoices:', error);

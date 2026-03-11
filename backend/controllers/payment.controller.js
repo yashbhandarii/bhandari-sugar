@@ -1,4 +1,5 @@
 const paymentService = require('../services/payment.service');
+const { clearCache } = require('../middleware/cache.middleware');
 
 exports.getCustomerPending = async (req, res) => {
     const { customer_id } = req.params;
@@ -14,6 +15,7 @@ exports.getCustomerPending = async (req, res) => {
 exports.addPayment = async (req, res) => {
     try {
         const payment = await paymentService.addPayment(req.body);
+        clearCache(); // Invalidate report caches
         res.status(201).json(payment);
     } catch (error) {
         console.error('Error adding payment:', error);
