@@ -19,19 +19,41 @@ exports.getTodayCashCollection = async (dateParam = null) => {
     const today = dateParam || new Date().toISOString().split('T')[0];
 
     const query = `
+        WITH customer_invoices AS (
+            SELECT customer_id, 
+                   SUM(total_amount) as total_invoiced,
+                   MAX(created_at)::DATE as last_invoice_date
+            FROM invoices
+            GROUP BY customer_id
+        ),
+        customer_payments AS (
+            SELECT customer_id, SUM(amount) as total_paid
+            FROM payments
+            WHERE payment_date <= $1::DATE
+            GROUP BY customer_id
+        ),
+        customer_adjustments AS (
+            SELECT i.customer_id, SUM(pa.amount) as total_adj
+            FROM payment_adjustments pa
+            JOIN invoices i ON pa.invoice_id = i.id
+            GROUP BY i.customer_id
+        )
         SELECT 
             c.name as customer_name,
             p.invoice_id,
             p.amount as payment_amount,
-            (COALESCE((SELECT SUM(total_amount) FROM invoices WHERE customer_id = c.id), 0) 
-             - COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id = c.id AND DATE(payment_date) <= $1::DATE), 0)
-             - COALESCE((SELECT SUM(pa.amount) FROM payment_adjustments pa JOIN invoices i ON pa.invoice_id = i.id WHERE i.customer_id = c.id), 0)
+            (COALESCE(ci.total_invoiced, 0) 
+             - COALESCE(cp.total_paid, 0)
+             - COALESCE(ca.total_adj, 0)
             ) as remaining_pending,
-            (SELECT DATE(MAX(created_at)) FROM invoices WHERE customer_id = c.id) as last_invoice_date
+            ci.last_invoice_date
         FROM payments p
         JOIN customers c ON p.customer_id = c.id
+        LEFT JOIN customer_invoices ci ON c.id = ci.customer_id
+        LEFT JOIN customer_payments cp ON c.id = cp.customer_id
+        LEFT JOIN customer_adjustments ca ON c.id = ca.customer_id
         WHERE p.payment_method = 'cash' 
-            AND DATE(p.payment_date) = $1::DATE
+            AND p.payment_date >= $1::DATE AND p.payment_date < ($1::DATE + INTERVAL '1 day')
         ORDER BY c.name, p.id DESC;
     `;
 
@@ -95,62 +117,73 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
 
     if (type === 'day') {
         query = `
+            WITH period_sales AS (
+                SELECT customer_id, SUM(total_amount) as total
+                FROM invoices
+                WHERE is_deleted = false
+                  AND created_at >= $1::DATE AND created_at < ($1::DATE + INTERVAL '1 day')
+                GROUP BY customer_id
+            ),
+            period_payments AS (
+                SELECT customer_id, SUM(amount) as total
+                FROM payments
+                WHERE payment_date >= $1::DATE AND payment_date < ($1::DATE + INTERVAL '1 day')
+                GROUP BY customer_id
+            ),
+            period_adjustments AS (
+                SELECT i.customer_id, SUM(pa.amount) as total
+                FROM payment_adjustments pa
+                JOIN invoices i ON pa.invoice_id = i.id
+                WHERE i.created_at >= $1::DATE AND i.created_at < ($1::DATE + INTERVAL '1 day')
+                GROUP BY i.customer_id
+            )
             SELECT 
                 c.id,
                 c.name as customer_name,
-                COALESCE((
-                    SELECT SUM(i.total_amount) FROM invoices i
-                    WHERE i.customer_id = c.id AND i.is_deleted = false
-                      AND i.created_at::DATE = $1::DATE
-                ), 0) as total_sales,
-                COALESCE((
-                    SELECT SUM(p.amount) FROM payments p
-                    WHERE p.customer_id = c.id
-                      AND p.payment_date = $1::DATE
-                ), 0) as total_paid,
-                COALESCE((
-                    SELECT SUM(pa.amount) FROM payment_adjustments pa
-                    JOIN invoices i ON pa.invoice_id = i.id
-                    WHERE i.customer_id = c.id AND i.created_at::DATE = $1::DATE
-                ), 0) as total_adj
+                COALESCE(ps.total, 0) as total_sales,
+                COALESCE(pp.total, 0) as total_paid,
+                COALESCE(pa.total, 0) as total_adj
             FROM customers c
+            INNER JOIN period_sales ps ON c.id = ps.customer_id
+            LEFT JOIN period_payments pp ON c.id = pp.customer_id
+            LEFT JOIN period_adjustments pa ON c.id = pa.customer_id
             WHERE c.is_deleted = false
-              AND EXISTS (
-                SELECT 1 FROM invoices i
-                WHERE i.customer_id = c.id AND i.is_deleted = false
-                  AND i.created_at::DATE = $1::DATE
-              )
             ORDER BY c.name;
         `;
         params = [startStr];
     } else {
         query = `
+            WITH period_sales AS (
+                SELECT customer_id, SUM(total_amount) as total
+                FROM invoices
+                WHERE is_deleted = false
+                  AND created_at >= $1::DATE AND created_at < ($2::DATE + INTERVAL '1 day')
+                GROUP BY customer_id
+            ),
+            period_payments AS (
+                SELECT customer_id, SUM(amount) as total
+                FROM payments
+                WHERE payment_date >= $1::DATE AND payment_date < ($2::DATE + INTERVAL '1 day')
+                GROUP BY customer_id
+            ),
+            period_adjustments AS (
+                SELECT i.customer_id, SUM(pa.amount) as total
+                FROM payment_adjustments pa
+                JOIN invoices i ON pa.invoice_id = i.id
+                WHERE i.created_at >= $1::DATE AND i.created_at < ($2::DATE + INTERVAL '1 day')
+                GROUP BY i.customer_id
+            )
             SELECT 
                 c.id,
                 c.name as customer_name,
-                COALESCE((
-                    SELECT SUM(i.total_amount) FROM invoices i
-                    WHERE i.customer_id = c.id AND i.is_deleted = false
-                      AND i.created_at::DATE >= $1::DATE AND i.created_at::DATE <= $2::DATE
-                ), 0) as total_sales,
-                COALESCE((
-                    SELECT SUM(p.amount) FROM payments p
-                    WHERE p.customer_id = c.id
-                      AND p.payment_date >= $1::DATE AND p.payment_date <= $2::DATE
-                ), 0) as total_paid,
-                COALESCE((
-                    SELECT SUM(pa.amount) FROM payment_adjustments pa
-                    JOIN invoices i ON pa.invoice_id = i.id
-                    WHERE i.customer_id = c.id
-                      AND i.created_at::DATE >= $1::DATE AND i.created_at::DATE <= $2::DATE
-                ), 0) as total_adj
+                COALESCE(ps.total, 0) as total_sales,
+                COALESCE(pp.total, 0) as total_paid,
+                COALESCE(pa.total, 0) as total_adj
             FROM customers c
+            INNER JOIN period_sales ps ON c.id = ps.customer_id
+            LEFT JOIN period_payments pp ON c.id = pp.customer_id
+            LEFT JOIN period_adjustments pa ON c.id = pa.customer_id
             WHERE c.is_deleted = false
-              AND EXISTS (
-                SELECT 1 FROM invoices i
-                WHERE i.customer_id = c.id AND i.is_deleted = false
-                  AND i.created_at::DATE >= $1::DATE AND i.created_at::DATE <= $2::DATE
-              )
             ORDER BY c.name;
         `;
         params = [startStr, endStr];
@@ -206,18 +239,37 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
  */
 exports.getAgingReport = async () => {
     const query = `
-        WITH customer_pending AS (
+        WITH invoice_totals AS (
+            SELECT customer_id,
+                   SUM(total_amount) as total_invoiced,
+                   MAX(created_at)::DATE as last_invoice_date,
+                   EXTRACT(DAY FROM NOW() - MAX(created_at)) as days_pending
+            FROM invoices
+            GROUP BY customer_id
+        ),
+        payment_totals AS (
+            SELECT customer_id, SUM(amount) as total_paid
+            FROM payments
+            GROUP BY customer_id
+        ),
+        adjustment_totals AS (
+            SELECT i.customer_id, SUM(pa.amount) as total_adj
+            FROM payment_adjustments pa
+            JOIN invoices i ON pa.invoice_id = i.id
+            GROUP BY i.customer_id
+        ),
+        customer_pending AS (
             SELECT 
                 c.id,
                 c.name,
-                SUM(i.total_amount) - COALESCE(SUM(p.amount), 0) - COALESCE((SELECT SUM(amount) FROM payment_adjustments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = c.id)), 0) as pending_amount,
-                MAX(i.created_at)::DATE as last_invoice_date,
-                EXTRACT(DAY FROM NOW() - MAX(i.created_at)) as days_pending
+                (COALESCE(it.total_invoiced, 0) - COALESCE(pt.total_paid, 0) - COALESCE(at2.total_adj, 0)) as pending_amount,
+                it.last_invoice_date,
+                COALESCE(it.days_pending, 0) as days_pending
             FROM customers c
-            LEFT JOIN invoices i ON c.id = i.customer_id
-            LEFT JOIN payments p ON c.id = p.customer_id
-            GROUP BY c.id, c.name
-            HAVING SUM(i.total_amount) - COALESCE(SUM(p.amount), 0) - COALESCE((SELECT SUM(amount) FROM payment_adjustments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = c.id)), 0) > 0
+            INNER JOIN invoice_totals it ON c.id = it.customer_id
+            LEFT JOIN payment_totals pt ON c.id = pt.customer_id
+            LEFT JOIN adjustment_totals at2 ON c.id = at2.customer_id
+            WHERE (COALESCE(it.total_invoiced, 0) - COALESCE(pt.total_paid, 0) - COALESCE(at2.total_adj, 0)) > 0
         ),
         categorized_pending AS (
             SELECT 
@@ -351,34 +403,50 @@ exports.getDiscountImpactReport = async (type = 'month', dateParam = null) => {
 
     if (type === 'day') {
         query = `
+            WITH period_adjustments AS (
+                SELECT i.customer_id, SUM(pa.amount) as total_adj
+                FROM payment_adjustments pa
+                JOIN invoices i ON pa.invoice_id = i.id
+                WHERE i.created_at >= $1::DATE AND i.created_at < ($1::DATE + INTERVAL '1 day')
+                GROUP BY i.customer_id
+            )
             SELECT 
                 c.id,
                 c.name as customer_name,
                 COALESCE(SUM(i.subtotal + i.sgst_amount + i.cgst_amount), 0) as gross_sales,
                 COALESCE(SUM(i.discount_amount), 0) as billing_discount,
-                COALESCE((SELECT SUM(amount) FROM payment_adjustments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = c.id AND created_at::DATE = $1::DATE)), 0) as payment_discount,
+                COALESCE(padj.total_adj, 0) as payment_discount,
                 COALESCE(SUM(i.total_amount), 0) as net_sales
             FROM customers c
             LEFT JOIN invoices i ON c.id = i.customer_id 
-                AND ${dateFilter}
-            GROUP BY c.id, c.name
+                AND i.created_at >= $1::DATE AND i.created_at < ($1::DATE + INTERVAL '1 day')
+            LEFT JOIN period_adjustments padj ON c.id = padj.customer_id
+            GROUP BY c.id, c.name, padj.total_adj
             HAVING COALESCE(SUM(i.total_amount), 0) > 0
             ORDER BY c.name;
         `;
         params = [startStr];
     } else {
         query = `
+            WITH period_adjustments AS (
+                SELECT i.customer_id, SUM(pa.amount) as total_adj
+                FROM payment_adjustments pa
+                JOIN invoices i ON pa.invoice_id = i.id
+                WHERE i.created_at >= $1::DATE AND i.created_at < ($2::DATE + INTERVAL '1 day')
+                GROUP BY i.customer_id
+            )
             SELECT 
                 c.id,
                 c.name as customer_name,
                 COALESCE(SUM(i.subtotal + i.sgst_amount + i.cgst_amount), 0) as gross_sales,
                 COALESCE(SUM(i.discount_amount), 0) as billing_discount,
-                COALESCE((SELECT SUM(amount) FROM payment_adjustments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = c.id AND created_at::DATE >= $1::DATE AND created_at::DATE <= $2::DATE)), 0) as payment_discount,
+                COALESCE(padj.total_adj, 0) as payment_discount,
                 COALESCE(SUM(i.total_amount), 0) as net_sales
             FROM customers c
             LEFT JOIN invoices i ON c.id = i.customer_id 
-                AND ${dateFilter}
-            GROUP BY c.id, c.name
+                AND i.created_at >= $1::DATE AND i.created_at < ($2::DATE + INTERVAL '1 day')
+            LEFT JOIN period_adjustments padj ON c.id = padj.customer_id
+            GROUP BY c.id, c.name, padj.total_adj
             HAVING COALESCE(SUM(i.total_amount), 0) > 0
             ORDER BY c.name;
         `;
@@ -443,18 +511,37 @@ exports.getDiscountImpactReport = async (type = 'month', dateParam = null) => {
  */
 exports.getPaymentDelayReport = async () => {
     const query = `
+        WITH invoice_totals AS (
+            SELECT customer_id, SUM(total_amount) as total_invoiced
+            FROM invoices
+            GROUP BY customer_id
+        ),
+        payment_totals AS (
+            SELECT customer_id, 
+                   SUM(amount) as total_paid,
+                   MAX(payment_date)::DATE as last_payment_date,
+                   EXTRACT(DAY FROM NOW() - MAX(payment_date)) as days_since_last_payment
+            FROM payments
+            GROUP BY customer_id
+        ),
+        adjustment_totals AS (
+            SELECT i.customer_id, SUM(pa.amount) as total_adj
+            FROM payment_adjustments pa
+            JOIN invoices i ON pa.invoice_id = i.id
+            GROUP BY i.customer_id
+        )
         SELECT 
             c.id,
             c.name as customer_name,
-            COALESCE(SUM(i.total_amount) - COALESCE(SUM(p.amount), 0) - COALESCE((SELECT SUM(amount) FROM payment_adjustments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = c.id)), 0), 0) as pending_amount,
-            MAX(p.payment_date)::DATE as last_payment_date,
-            EXTRACT(DAY FROM NOW() - MAX(p.payment_date)) as days_since_last_payment
+            (COALESCE(it.total_invoiced, 0) - COALESCE(pt.total_paid, 0) - COALESCE(at2.total_adj, 0)) as pending_amount,
+            pt.last_payment_date,
+            pt.days_since_last_payment
         FROM customers c
-        LEFT JOIN invoices i ON c.id = i.customer_id
-        LEFT JOIN payments p ON c.id = p.customer_id
-        GROUP BY c.id, c.name
-        HAVING COALESCE(SUM(i.total_amount) - COALESCE(SUM(p.amount), 0) - COALESCE((SELECT SUM(amount) FROM payment_adjustments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = c.id)), 0), 0) > 0
-        ORDER BY days_since_last_payment DESC NULLS LAST, pending_amount DESC;
+        INNER JOIN invoice_totals it ON c.id = it.customer_id
+        LEFT JOIN payment_totals pt ON c.id = pt.customer_id
+        LEFT JOIN adjustment_totals at2 ON c.id = at2.customer_id
+        WHERE (COALESCE(it.total_invoiced, 0) - COALESCE(pt.total_paid, 0) - COALESCE(at2.total_adj, 0)) > 0
+        ORDER BY pt.days_since_last_payment DESC NULLS LAST, pending_amount DESC;
     `;
 
     const result = await db.query(query);
@@ -490,50 +577,55 @@ exports.getDashboardSummary = async () => {
     const monthStartStr = monthStart.toISOString().split('T')[0];
 
     const query = `
+        WITH today_payments AS (
+            SELECT 
+                COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cash'), 0) as today_cash,
+                COALESCE(SUM(amount) FILTER (WHERE payment_method = 'upi'), 0) as today_upi,
+                COALESCE(SUM(amount) FILTER (WHERE payment_method = 'bank'), 0) as today_bank,
+                COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cheque'), 0) as today_cheque
+            FROM payments 
+            WHERE payment_date >= $1::DATE AND payment_date < ($1::DATE + INTERVAL '1 day')
+        ),
+        pending_calc AS (
+            SELECT 
+                (SELECT COALESCE(SUM(total_amount), 0) FROM invoices)
+                - (SELECT COALESCE(SUM(amount), 0) FROM payments)
+                - (SELECT COALESCE(SUM(amount), 0) FROM payment_adjustments)
+                as total_pending
+        ),
+        sales_metrics AS (
+            SELECT 
+                COALESCE(SUM(total_amount) FILTER (
+                    WHERE created_at >= $2::DATE AND created_at < ($1::DATE + INTERVAL '1 day')
+                ), 0) as total_sales_week,
+                COALESCE(SUM(total_amount) FILTER (
+                    WHERE created_at >= $3::DATE AND created_at < ($1::DATE + INTERVAL '1 day')
+                ), 0) as total_sales_month,
+                COALESCE(SUM(discount_amount) FILTER (
+                    WHERE created_at >= $3::DATE AND created_at < ($1::DATE + INTERVAL '1 day')
+                ), 0) as total_discount_month
+            FROM invoices
+        ),
+        high_risk AS (
+            SELECT COUNT(*) as cnt FROM (
+                SELECT it.customer_id
+                FROM (
+                    SELECT customer_id, SUM(total_amount) as total_inv, MAX(created_at) as last_inv
+                    FROM invoices GROUP BY customer_id
+                ) it
+                LEFT JOIN (
+                    SELECT customer_id, SUM(amount) as total_paid FROM payments GROUP BY customer_id
+                ) pt ON it.customer_id = pt.customer_id
+                WHERE EXTRACT(DAY FROM NOW() - it.last_inv) > 30
+                  AND (it.total_inv - COALESCE(pt.total_paid, 0)) > 0
+            ) hr
+        )
         SELECT 
-            -- Today's collections by method
-            (SELECT COALESCE(SUM(amount), 0) FROM payments 
-             WHERE payment_method = 'cash' AND DATE(payment_date) = $1::DATE) as today_cash,
-            (SELECT COALESCE(SUM(amount), 0) FROM payments 
-             WHERE payment_method = 'upi' AND DATE(payment_date) = $1::DATE) as today_upi,
-            (SELECT COALESCE(SUM(amount), 0) FROM payments 
-             WHERE payment_method = 'bank' AND DATE(payment_date) = $1::DATE) as today_bank,
-            (SELECT COALESCE(SUM(amount), 0) FROM payments 
-             WHERE payment_method = 'cheque' AND DATE(payment_date) = $1::DATE) as today_cheque,
-            
-            -- Total pending
-            (SELECT COALESCE(SUM(total_amount), 0) - COALESCE(SUM(p_amt), 0) - COALESCE(SUM(a_amt), 0)
-             FROM (
-                SELECT COALESCE(SUM(total_amount), 0) as total_amount 
-                FROM invoices
-             ) inv,
-             (
-                SELECT COALESCE(SUM(amount), 0) as p_amt
-                FROM payments
-             ) pmt,
-             (
-                SELECT COALESCE(SUM(amount), 0) as a_amt
-                FROM payment_adjustments
-             ) adj) as total_pending,
-            
-            -- Week and month sales
-            (SELECT COALESCE(SUM(total_amount), 0) FROM invoices 
-             WHERE created_at::DATE >= $2::DATE AND created_at::DATE <= $1::DATE) as total_sales_week,
-            (SELECT COALESCE(SUM(total_amount), 0) FROM invoices 
-             WHERE created_at::DATE >= $3::DATE AND created_at::DATE <= $1::DATE) as total_sales_month,
-            (SELECT COALESCE(SUM(discount_amount), 0) FROM invoices 
-             WHERE created_at::DATE >= $3::DATE AND created_at::DATE <= $1::DATE) as total_discount_month,
-            
-            -- High-risk count (30+ days pending)
-            (SELECT COUNT(*) FROM (
-                SELECT c.id
-                FROM customers c
-                LEFT JOIN invoices i ON c.id = i.customer_id
-                LEFT JOIN payments p ON c.id = p.customer_id
-                GROUP BY c.id
-                HAVING EXTRACT(DAY FROM NOW() - MAX(i.created_at)) > 30
-                    AND SUM(i.total_amount) - COALESCE(SUM(p.amount), 0) > 0
-            ) high_risk) as aging_high_risk_count;
+            tp.today_cash, tp.today_upi, tp.today_bank, tp.today_cheque,
+            pc.total_pending,
+            sm.total_sales_week, sm.total_sales_month, sm.total_discount_month,
+            hr.cnt as aging_high_risk_count
+        FROM today_payments tp, pending_calc pc, sales_metrics sm, high_risk hr;
     `;
 
     const result = await db.query(query, [today, weekAgoStr, monthStartStr]);

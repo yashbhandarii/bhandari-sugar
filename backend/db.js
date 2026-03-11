@@ -22,7 +22,12 @@ const poolConfig = process.env.DATABASE_URL
         port: process.env.DB_PORT,
     };
 
-const pool = new Pool(poolConfig);
+const pool = new Pool({
+    ...poolConfig,
+    max: 20,                       // Max connections (default was 10)
+    idleTimeoutMillis: 30000,      // Close idle connections after 30s
+    connectionTimeoutMillis: 5000, // Fail fast if can't connect in 5s
+});
 
 pool.on('connect', () => {
     // console.log('Connected to the PostgreSQL database');

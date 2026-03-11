@@ -112,27 +112,37 @@ exports.getRiskyCustomers = async () => {
     // 3. Days Pending = Now - Oldest Invoice Date.
 
     const query = `
-        SELECT 
-            c.id, 
-            c.name,
-            (COALESCE(SUM(i.total_amount), 0) - COALESCE(p.total_paid, 0) - COALESCE(adj.total_adj, 0)) as pending_amount,
-            p.last_payment_date,
-            EXTRACT(DAY FROM NOW() - MIN(i.created_at) FILTER (WHERE i.status != 'paid')) as days_pending
-        FROM customers c
-        LEFT JOIN invoices i ON c.id = i.customer_id
-        LEFT JOIN (
-            SELECT customer_id, SUM(amount) as total_paid, MAX(payment_date) as last_payment_date
+        WITH invoice_totals AS (
+            SELECT customer_id, 
+                   SUM(total_amount) as total_invoiced,
+                   MIN(created_at) FILTER (WHERE status != 'paid') as oldest_unpaid_date
+            FROM invoices
+            GROUP BY customer_id
+        ),
+        payment_totals AS (
+            SELECT customer_id, 
+                   SUM(amount) as total_paid, 
+                   MAX(payment_date) as last_payment_date
             FROM payments
             GROUP BY customer_id
-        ) p ON c.id = p.customer_id
-        LEFT JOIN (
+        ),
+        adjustment_totals AS (
             SELECT i.customer_id, SUM(pa.amount) as total_adj
             FROM payment_adjustments pa
             JOIN invoices i ON pa.invoice_id = i.id
             GROUP BY i.customer_id
-        ) adj ON c.id = adj.customer_id
-        GROUP BY c.id, c.name, p.total_paid, p.last_payment_date, adj.total_adj
-        HAVING (COALESCE(SUM(i.total_amount), 0) - COALESCE(p.total_paid, 0) - COALESCE(adj.total_adj, 0)) > 0
+        )
+        SELECT 
+            c.id, 
+            c.name,
+            (COALESCE(it.total_invoiced, 0) - COALESCE(pt.total_paid, 0) - COALESCE(at2.total_adj, 0)) as pending_amount,
+            pt.last_payment_date,
+            EXTRACT(DAY FROM NOW() - it.oldest_unpaid_date) as days_pending
+        FROM customers c
+        INNER JOIN invoice_totals it ON c.id = it.customer_id
+        LEFT JOIN payment_totals pt ON c.id = pt.customer_id
+        LEFT JOIN adjustment_totals at2 ON c.id = at2.customer_id
+        WHERE (COALESCE(it.total_invoiced, 0) - COALESCE(pt.total_paid, 0) - COALESCE(at2.total_adj, 0)) > 0
         ORDER BY pending_amount DESC
     `;
 
@@ -170,7 +180,7 @@ exports.getReport = async (startDate, endDate) => {
         WITH sales_range AS (
             SELECT customer_id, SUM(total_amount) as total
             FROM invoices
-            WHERE created_at::DATE >= $1 AND created_at::DATE <= $2
+            WHERE created_at >= $1::DATE AND created_at < ($2::DATE + INTERVAL '1 day')
             GROUP BY customer_id
         ),
         payments_range AS (

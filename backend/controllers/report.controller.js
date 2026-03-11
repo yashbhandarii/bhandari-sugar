@@ -341,3 +341,55 @@ exports.downloadReport = async (req, res) => {
         if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
     }
 };
+
+// ════════════════════════════════════════════════════════
+// COMBINED DASHBOARD ENDPOINTS (Performance Optimization)
+// ════════════════════════════════════════════════════════
+
+/**
+ * Owner Dashboard — ALL data in one call
+ * GET /api/dashboard/owner-all
+ * Replaces 4 separate calls: summary, payment-methods, weekly-sales, risky-customers
+ */
+exports.getOwnerDashboardAll = async (req, res) => {
+    try {
+        const [summary, paymentMethods, weeklySales, riskyCustomers] = await Promise.all([
+            reportService.getOwnerDashboardSummary(),
+            reportService.getPaymentMethodSummary(),
+            reportService.getWeeklySales(),
+            reportService.getRiskyCustomers()
+        ]);
+
+        res.json({
+            summary,
+            paymentMethods,
+            weeklySales,
+            riskyCustomers
+        });
+    } catch (error) {
+        console.error('Error fetching owner dashboard (combined):', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+/**
+ * Manager Dashboard — ALL data in one call
+ * GET /api/dashboard/manager-all
+ * Replaces 2 separate calls: dashboard summary, payment-delay
+ */
+exports.getManagerDashboardAll = async (req, res) => {
+    try {
+        const [summary, paymentDelay] = await Promise.all([
+            reportService.getDashboardSummary(),
+            advancedReportService.getPaymentDelayReport()
+        ]);
+
+        res.json({
+            summary,
+            paymentDelay
+        });
+    } catch (error) {
+        console.error('Error fetching manager dashboard (combined):', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};

@@ -2,62 +2,59 @@ const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/report.controller');
 const { verifyToken } = require('../middleware/auth.middleware');
+const { cacheFor } = require('../middleware/cache.middleware');
 
 router.use(verifyToken);
 
 // ════════════════════════════════════════════════════════
-// EXISTING ROUTES
+// EXISTING ROUTES (with caching)
 // ════════════════════════════════════════════════════════
 
-// GET /api/reports/dashboard
 // GET /api/reports/dashboard (Manager)
-router.get('/dashboard', reportController.getDashboardSummary);
+router.get('/dashboard', cacheFor(30), reportController.getDashboardSummary);
 
 // GET /api/reports/owner-dashboard (Aggregated)
-router.get('/owner-dashboard', reportController.getOwnerDashboard);
+router.get('/owner-dashboard', cacheFor(30), reportController.getOwnerDashboard);
 
 // Specific Owner APIs
-router.get('/summary', reportController.getOwnerSummary); // For /api/dashboard/summary
-router.get('/payment-method-summary', reportController.getPaymentMethodSummary);
-router.get('/weekly-sales', reportController.getWeeklySales);
-router.get('/risky-customers', reportController.getRiskyCustomers);
+router.get('/summary', cacheFor(30), reportController.getOwnerSummary);
+router.get('/payment-method-summary', cacheFor(60), reportController.getPaymentMethodSummary);
+router.get('/weekly-sales', cacheFor(60), reportController.getWeeklySales);
+router.get('/risky-customers', cacheFor(60), reportController.getRiskyCustomers);
 
-router.get('/day', reportController.getDayReport);
-router.get('/week', reportController.getWeekReport);
-router.get('/month', reportController.getMonthReport);
+// Combined Dashboard Endpoints (Performance — single API call)
+router.get('/owner-all', cacheFor(30), reportController.getOwnerDashboardAll);
+router.get('/manager-all', cacheFor(30), reportController.getManagerDashboardAll);
+
+router.get('/day', cacheFor(60), reportController.getDayReport);
+router.get('/week', cacheFor(60), reportController.getWeekReport);
+router.get('/month', cacheFor(60), reportController.getMonthReport);
 
 // ════════════════════════════════════════════════════════
-// ADVANCED REPORTING ROUTES (NEW)
+// ADVANCED REPORTING ROUTES (with caching)
 // ════════════════════════════════════════════════════════
 
 // REPORT 1: TODAY'S CASH COLLECTION
-// GET /api/reports/today-cash
-router.get('/today-cash', reportController.getTodayCashCollection);
+router.get('/today-cash', cacheFor(30), reportController.getTodayCashCollection);
 
 // REPORT 2: CUSTOMER SUMMARY
-// GET /api/reports/customer-summary?type=day|week|month&date=YYYY-MM-DD
-router.get('/customer-summary', reportController.getCustomerSummary);
+router.get('/customer-summary', cacheFor(60), reportController.getCustomerSummary);
 
 // REPORT 3: AGING REPORT
-// GET /api/reports/aging
-router.get('/aging', reportController.getAgingReport);
+router.get('/aging', cacheFor(60), reportController.getAgingReport);
 
 // REPORT 4: DISCOUNT IMPACT
-// GET /api/reports/discount-impact?type=day|week|month&date=YYYY-MM-DD
-router.get('/discount-impact', reportController.getDiscountImpactReport);
+router.get('/discount-impact', cacheFor(60), reportController.getDiscountImpactReport);
 
 // REPORT 5: PAYMENT DELAY REPORT
-// GET /api/reports/payment-delay
-router.get('/payment-delay', reportController.getPaymentDelayReport);
+router.get('/payment-delay', cacheFor(60), reportController.getPaymentDelayReport);
 
 // REPORT 6: ENHANCED DASHBOARD SUMMARY
-// GET /api/reports/dashboard-summary-advanced
-router.get('/dashboard-summary-advanced', reportController.getDashboardSummaryAdvanced);
+router.get('/dashboard-summary-advanced', cacheFor(30), reportController.getDashboardSummaryAdvanced);
 
 // ════════════════════════════════════════════════════════
-// PDF DOWNLOAD
+// PDF DOWNLOAD (no cache — streams binary)
 // ════════════════════════════════════════════════════════
-// GET /api/reports/download?type=aging|discount|summary|customer-summary&date=...
 router.get('/download', reportController.downloadReport);
 
 module.exports = router;

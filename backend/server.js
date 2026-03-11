@@ -1,6 +1,7 @@
 // v3 - PUT items route added
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 
@@ -48,6 +49,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// Compress all responses (gzip/brotli) — 60-70% smaller JSON payloads
+app.use(compression());
 // Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
