@@ -96,11 +96,54 @@ exports.createDeliverySheet = async (data) => {
 };
 
 /**
- * Update rates for a delivery sheet.
- * DEPRECATED: Rates are now in billing_rates table and managed by Manager.
+ * Update a delivery sheet (e.g., truck number)
+ * Only allowed for draft sheets.
+ * @param {number} id
+ * @param {Object} data - { truck_number, medium_rate, super_small_rate }
+ * @returns {Promise<Object>} Updated delivery sheet
  */
-exports.updateSheetRates = async (id, data) => {
-    throw new Error('Rate updates on delivery sheets are no longer supported. Use Billing module.');
+exports.updateSheet = async (id, data) => {
+    const { truck_number, medium_rate, super_small_rate } = data;
+
+    const sheetRes = await db.query('SELECT status FROM delivery_sheets WHERE id = $1 AND is_deleted = false', [id]);
+    if (sheetRes.rows.length === 0) {
+        throw new Error('Delivery sheet not found');
+    }
+    if (sheetRes.rows[0].status !== 'draft') {
+        throw new Error('Only draft delivery sheets can be edited');
+    }
+
+    const updates = [];
+    const values = [];
+    let queryIdx = 1;
+
+    if (truck_number !== undefined) {
+        updates.push(`truck_number = $${queryIdx++}`);
+        values.push(truck_number);
+    }
+    if (medium_rate !== undefined) {
+        updates.push(`medium_rate = $${queryIdx++}`);
+        values.push(medium_rate);
+    }
+    if (super_small_rate !== undefined) {
+        updates.push(`super_small_rate = $${queryIdx++}`);
+        values.push(super_small_rate);
+    }
+
+    if (updates.length === 0) {
+        throw new Error('No fields to update');
+    }
+
+    values.push(id);
+    const query = `
+        UPDATE delivery_sheets 
+        SET ${updates.join(', ')} 
+        WHERE id = $${queryIdx} 
+        RETURNING *
+    `;
+
+    const result = await db.query(query, values);
+    return result.rows[0];
 };
 
 /**

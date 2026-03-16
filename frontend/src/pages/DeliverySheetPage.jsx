@@ -26,6 +26,10 @@ const DeliverySheetPage = () => {
     const [status, setStatus] = useState('draft');
     const [loading, setLoading] = useState(!!id);
 
+    // Editing truck number state
+    const [isEditingTruck, setIsEditingTruck] = useState(false);
+    const [tempTruckNumber, setTempTruckNumber] = useState('');
+
     // customers: [{ id, name, mobile }]
     const [customers, setCustomers] = useState([]);
     // categories: [{ id, name }]
@@ -162,22 +166,40 @@ const DeliverySheetPage = () => {
             if (existingItemId && existingItemId !== true) {
                 // Already saved — UPDATE via PUT
                 await api.put(`/delivery-sheets/items/${existingItemId}`, { quantities });
-            } else if (!existingItemId) {
+            } else if (existingItemId === true) {
+                // It was marked as "already exists" but we don't have the ID. 
+                // We must fetch the sheet again to get the real item ID to update.
+                const sheetRes = await api.get(`/delivery-sheets/${currentSheetId}`);
+                const item = sheetRes.data.items?.find(i => i.customer_id === customerId);
+                if (item) {
+                    savedItems.current[customerId] = item.id;
+                    await api.put(`/delivery-sheets/items/${item.id}`, { quantities });
+                } else {
+                    throw new Error('Item sync failed, please refresh');
+                }
+            } else {
                 // New — CREATE via POST
                 const res = await api.post('/delivery-sheets/items', {
                     delivery_sheet_id: currentSheetId,
                     customer_id: customerId,
                     quantities,
                 });
-                // Store the real item ID for future updates
-                savedItems.current[customerId] = res.data.id;
+                // Only store if we haven't already captured a valid ID from a concurrent request
+                if (!savedItems.current[customerId] || savedItems.current[customerId] === true) {
+                    savedItems.current[customerId] = res.data.id;
+                }
             }
             setRows(prev => ({ ...prev, [customerId]: { ...prev[customerId], saving: false, saved: true } }));
         } catch (e) {
-            const msg = e.response?.data?.error || 'Save failed';
+            const msg = e.response?.data?.error || e.message || 'Save failed';
+            
             if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('duplicate')) {
-                savedItems.current[customerId] = true;
-                setRows(prev => ({ ...prev, [customerId]: { ...prev[customerId], saving: false, saved: true } }));
+                // If a concurrent request succeeded, we might already have the ID, so don't overwrite it with true.
+                if (!savedItems.current[customerId]) {
+                    savedItems.current[customerId] = true;
+                }
+                // Try to resave immediately now that we know it exists, which will trigger the sync logic above
+                doSave(customerId, currentRows);
             } else {
                 setRows(prev => ({ ...prev, [customerId]: { ...prev[customerId], saving: false, saved: false } }));
                 toast.error(msg);
@@ -256,6 +278,21 @@ const DeliverySheetPage = () => {
         }
     };
 
+    const handleSaveTruckNumber = async () => {
+        if (!tempTruckNumber.trim()) {
+            toast.error('Truck number cannot be empty');
+            return;
+        }
+        try {
+            await api.patch(`/delivery-sheets/${sheetId}`, { truck_number: tempTruckNumber });
+            setTruckNumber(tempTruckNumber);
+            setIsEditingTruck(false);
+            toast.success('Truck number updated');
+        } catch (e) {
+            toast.error('Failed to update truck number: ' + (e.response?.data?.error || e.message));
+        }
+    };
+
     const isReadOnly = status !== 'draft';
 
     // Totals
@@ -330,9 +367,41 @@ const DeliverySheetPage = () => {
                 <div className="space-y-3">
                     {/* Info bar */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm relative group">
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Truck</p>
-                            <p className="font-bold text-gray-900 truncate">{truckNumber}</p>
+                            {isEditingTruck ? (
+                                <div className="flex items-center gap-2 mt-1">
+                                    <input 
+                                        type="text" 
+                                        value={tempTruckNumber} 
+                                        onChange={(e) => setTempTruckNumber(e.target.value)}
+                                        className="w-full text-sm font-bold border-b border-gray-300 focus:border-primary focus:outline-none px-1 py-0.5"
+                                        autoFocus
+                                    />
+                                    <button onClick={handleSaveTruckNumber} className="text-green-600 hover:text-green-700 p-1 rounded-md bg-green-50">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                                    </button>
+                                    <button onClick={() => setIsEditingTruck(false)} className="text-red-500 hover:text-red-600 p-1 rounded-md bg-red-50">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-between">
+                                    <p className="font-bold text-gray-900 truncate pr-2">{truckNumber}</p>
+                                    {!isReadOnly && (
+                                        <button 
+                                            onClick={() => {
+                                                setTempTruckNumber(truckNumber);
+                                                setIsEditingTruck(true);
+                                            }}
+                                            className="text-gray-400 hover:text-primary transition-colors opacity-0 group-hover:opacity-100 p-1"
+                                            title="Edit Truck Number"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Driver</p>

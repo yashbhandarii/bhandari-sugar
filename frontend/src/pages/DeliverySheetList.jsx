@@ -126,9 +126,14 @@ const DeliverySheetList = () => {
                             <TableCell data-label="Actions" className="actions-cell">
                                 <div className="flex flex-wrap gap-2">
                                     {sheet.status === 'draft' && (
-                                        <Button size="sm" variant="outline" onClick={() => setRatesModal({ id: sheet.id, medium_rate: String(sheet.medium_rate ?? ''), super_small_rate: String(sheet.super_small_rate ?? '') })}>
-                                            Set rates
-                                        </Button>
+                                        <>
+                                            <Button size="sm" variant="outline" onClick={() => setRatesModal({ id: sheet.id, medium_rate: String(sheet.medium_rate ?? ''), super_small_rate: String(sheet.super_small_rate ?? '') })}>
+                                                Set rates
+                                            </Button>
+                                            <Link to={`/driver/delivery-sheet/${sheet.id}`}>
+                                                <Button size="sm" variant="secondary">Edit</Button>
+                                            </Link>
+                                        </>
                                     )}
                                     <Button size="sm" variant="outline" onClick={() => handleDownload(sheet.id)}>
                                         Download

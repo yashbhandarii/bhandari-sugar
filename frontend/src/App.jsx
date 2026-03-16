@@ -72,12 +72,12 @@ const AppRoutes = () => {
                 </ProtectedRoute>
               } />
               <Route path="/driver/delivery-sheet/new" element={
-                <ProtectedRoute allowedRoles={['driver', 'owner']}>
+                <ProtectedRoute allowedRoles={['driver', 'owner', 'manager']}>
                   <DeliverySheetPage />
                 </ProtectedRoute>
               } />
               <Route path="/driver/delivery-sheet/:id" element={
-                <ProtectedRoute allowedRoles={['driver', 'owner']}>
+                <ProtectedRoute allowedRoles={['driver', 'owner', 'manager']}>
                   <DeliverySheetPage />
                 </ProtectedRoute>
               } />

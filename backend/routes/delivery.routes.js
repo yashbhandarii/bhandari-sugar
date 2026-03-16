@@ -37,8 +37,8 @@ router.put('/items/:itemId', deliveryController.updateItemInDeliverySheet);
 // GET /api/delivery-sheets/:id/download
 router.get('/:id/download', deliveryController.downloadSheet);
 
-// PATCH /api/delivery-sheets/:id (rates for draft sheets)
-router.patch('/:id', deliveryController.updateSheetRates);
+// PATCH /api/delivery-sheets/:id
+router.patch('/:id', deliveryController.updateSheet);
 
 // GET /api/delivery-sheets/:id
 router.get('/:id', deliveryController.getDeliverySheetById);

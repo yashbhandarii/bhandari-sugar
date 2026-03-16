@@ -63,14 +63,14 @@ exports.updateItemInDeliverySheet = async (req, res) => {
     }
 };
 
-// Update delivery sheet rates (draft only)
-exports.updateSheetRates = async (req, res) => {
+// Update a delivery sheet (e.g. truck number) - draft only
+exports.updateSheet = async (req, res) => {
     const { id } = req.params;
     try {
-        const sheet = await deliveryService.updateSheetRates(id, req.body);
-        res.json(sheet);
+        const sheet = await deliveryService.updateSheet(id, req.body);
+        res.json({ message: 'Sheet updated successfully', sheet });
     } catch (error) {
-        console.error('Error updating sheet rates:', error);
+        console.error('Error updating sheet:', error);
         res.status(400).json({ error: error.message || 'Bad request' });
     }
 };
