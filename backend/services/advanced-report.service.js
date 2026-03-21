@@ -206,6 +206,21 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
         { total_sales: 0, total_paid: 0, total_pending: 0 }
     );
 
+    // Fetch category breakdown for the period
+    const categoryBreakdown = await getCustomerCategoryBreakdown(startDate, endDate);
+    const categoryMap = new Map();
+    categoryBreakdown.forEach(row => {
+        const customerId = parseInt(row.customer_id, 10);
+        if (!categoryMap.has(customerId)) {
+            categoryMap.set(customerId, []);
+        }
+        categoryMap.get(customerId).push({
+            category_name: row.category_name,
+            total_bags: parseInt(row.total_bags || 0, 10),
+            category_amount: parseFloat(row.category_amount || 0)
+        });
+    });
+
     return {
         title,
         start_date: startStr,
@@ -221,13 +236,123 @@ exports.getCustomerSummary = async (type = 'month', dateParam = null) => {
             const paid = parseFloat(r.total_paid || 0);
             const adj = parseFloat(r.total_adj || 0);
             return {
+                customer_id: r.id,
                 customer_name: r.customer_name,
                 total_sales: sales,
                 total_paid: paid,
-                total_pending: parseFloat((sales - paid - adj).toFixed(2))
+                total_pending: parseFloat((sales - paid - adj).toFixed(2)),
+                categories: categoryMap.get(r.id) || []
             };
         })
     };
+};
+
+/**
+ * Get category breakdown per customer for a date range.
+ * Uses delivery_quantities when available and falls back to legacy bag columns.
+ */
+const getCustomerCategoryBreakdown = async (startDate, endDate) => {
+    const startStr = startDate.toISOString().split('T')[0];
+    const endStr = endDate.toISOString().split('T')[0];
+
+    try {
+        const query = `
+            SELECT
+                i.customer_id,
+                cat.name AS category_name,
+                SUM(item_qty.bags)::INTEGER AS total_bags,
+                ROUND(SUM(
+                    item_qty.bags * COALESCE(
+                        dsr.rate,
+                        CASE
+                            WHEN LOWER(cat.name) = 'medium' THEN br.medium_rate
+                            WHEN LOWER(cat.name) IN ('super small', 'super_small') THEN br.super_small_rate
+                            ELSE 0
+                        END,
+                        0
+                    )
+                )::NUMERIC, 2) AS category_amount
+            FROM invoices i
+            INNER JOIN delivery_items di
+                ON di.delivery_sheet_id = i.delivery_sheet_id
+               AND di.customer_id = i.customer_id
+            LEFT JOIN billing_rates br
+                ON br.delivery_sheet_id = i.delivery_sheet_id
+            INNER JOIN LATERAL (
+                SELECT dq.category_id, SUM(dq.bags)::INTEGER AS bags
+                FROM delivery_quantities dq
+                WHERE dq.delivery_item_id = di.id
+                GROUP BY dq.category_id
+
+                UNION ALL
+
+                SELECT cat_medium.id, di.medium_bags
+                FROM categories cat_medium
+                WHERE LOWER(cat_medium.name) = 'medium'
+                  AND COALESCE(di.medium_bags, 0) > 0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM delivery_quantities legacy_dq
+                      WHERE legacy_dq.delivery_item_id = di.id
+                  )
+
+                UNION ALL
+
+                SELECT cat_small.id, di.super_small_bags
+                FROM categories cat_small
+                WHERE LOWER(cat_small.name) IN ('super small', 'super_small')
+                  AND COALESCE(di.super_small_bags, 0) > 0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM delivery_quantities legacy_dq
+                      WHERE legacy_dq.delivery_item_id = di.id
+                  )
+            ) item_qty ON true
+            INNER JOIN categories cat
+                ON cat.id = item_qty.category_id
+            LEFT JOIN delivery_sheet_rates dsr
+                ON dsr.delivery_sheet_id = i.delivery_sheet_id
+               AND dsr.category_id = item_qty.category_id
+            WHERE i.is_deleted = false
+              AND i.created_at >= $1::DATE
+              AND i.created_at < ($2::DATE + INTERVAL '1 day')
+            GROUP BY i.customer_id, cat.name
+            ORDER BY i.customer_id, cat.name;
+        `;
+        const result = await db.query(query, [startStr, endStr]);
+        return result.rows;
+    } catch (err) {
+        // delivery_quantities table may not exist — return empty breakdown
+        if (err.code === '42P01') {
+            const legacyQuery = `
+                SELECT
+                    i.customer_id,
+                    legacy.category_name,
+                    SUM(legacy.bags)::INTEGER AS total_bags,
+                    ROUND(SUM(legacy.bags * legacy.rate)::NUMERIC, 2) AS category_amount
+                FROM invoices i
+                INNER JOIN delivery_items di
+                    ON di.delivery_sheet_id = i.delivery_sheet_id
+                   AND di.customer_id = i.customer_id
+                LEFT JOIN billing_rates br
+                    ON br.delivery_sheet_id = i.delivery_sheet_id
+                INNER JOIN LATERAL (
+                    SELECT 'Medium' AS category_name, COALESCE(di.medium_bags, 0) AS bags, COALESCE(br.medium_rate, 0) AS rate
+                    UNION ALL
+                    SELECT 'Super Small' AS category_name, COALESCE(di.super_small_bags, 0) AS bags, COALESCE(br.super_small_rate, 0) AS rate
+                ) legacy ON legacy.bags > 0
+                WHERE i.is_deleted = false
+                  AND i.created_at >= $1::DATE
+                  AND i.created_at < ($2::DATE + INTERVAL '1 day')
+                GROUP BY i.customer_id, legacy.category_name
+                ORDER BY i.customer_id, legacy.category_name;
+            `;
+
+            const legacyResult = await db.query(legacyQuery, [startStr, endStr]);
+            return legacyResult.rows;
+        }
+        throw err;
+    }
 };
 
 /**
