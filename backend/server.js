@@ -61,8 +61,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Database connection check
-const db = require('./db');
+require('./db');
 const { globalLimiter } = require('./middleware/rateLimiter');
+const { ensureGodownInvoiceSchema } = require('./utils/ensureGodownInvoiceSchema');
 
 // Apply global rate limiting to all API requests
 app.use('/api/', globalLimiter);
@@ -108,10 +109,21 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+async function startServer() {
+    try {
+        await ensureGodownInvoiceSchema();
 
-    // Initialize Backup Scheduler
-    const { initScheduler } = require('./cron/scheduler');
-    initScheduler();
-});
+        app.listen(PORT, () => {
+            console.log(`Server is running on port ${PORT}`);
+
+            // Initialize Backup Scheduler
+            const { initScheduler } = require('./cron/scheduler');
+            initScheduler();
+        });
+    } catch (error) {
+        console.error('Failed to verify Godown invoice schema:', error);
+        process.exit(1);
+    }
+}
+
+startServer();
