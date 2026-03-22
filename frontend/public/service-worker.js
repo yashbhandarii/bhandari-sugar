@@ -1,9 +1,7 @@
 /* eslint-disable no-restricted-globals */
 
-const CACHE_NAME = 'bhandari-sugar-v4';
+const CACHE_NAME = 'bhandari-sugar-v5';
 const STATIC_ASSETS = [
-    '/',
-    '/index.html',
     '/manifest.json',
     '/logo.png',
     '/favicon.ico',
@@ -58,6 +56,29 @@ self.addEventListener('fetch', event => {
                 status: 503,
                 headers: { 'Content-Type': 'application/json' }
             }))
+        );
+        return;
+    }
+
+    // HTML navigations: network first so new deploys do not keep stale chunk references
+    if (request.mode === 'navigate' || request.destination === 'document') {
+        event.respondWith(
+            fetch(request)
+                .then(response => {
+                    if (response.status === 200) {
+                        const cloned = response.clone();
+                        caches.open(CACHE_NAME).then(cache => {
+                            cache.put(request, cloned);
+                            cache.put('/index.html', response.clone());
+                        });
+                    }
+                    return response;
+                })
+                .catch(() =>
+                    caches.match(request).then(cached =>
+                        cached || caches.match('/index.html') || new Response('Offline', { status: 503 })
+                    )
+                )
         );
         return;
     }
