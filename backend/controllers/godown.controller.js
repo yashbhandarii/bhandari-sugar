@@ -21,6 +21,19 @@ exports.createInvoice = async (req, res) => {
     }
 };
 
+exports.getInvoice = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const invoice = await godownService.getInvoiceById(id);
+        if (!invoice) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+        res.json(invoice);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 exports.addPayment = async (req, res) => {
     try {
         const { godown_invoice_id, amount, payment_method, payment_date } = req.body;

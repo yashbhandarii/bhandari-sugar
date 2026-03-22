@@ -16,6 +16,7 @@ const restrictToPrivileged = (req, res, next) => {
 };
 
 // Invoices
+router.get('/invoices/:id', godownController.getInvoice);
 router.get('/invoices/:id/download', godownController.downloadInvoice);
 
 // Reports (Open to all verified users)
