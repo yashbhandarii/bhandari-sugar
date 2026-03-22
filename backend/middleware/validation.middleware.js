@@ -3,6 +3,11 @@ const { body, param, validationResult } = require('express-validator');
 const validate = (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+        console.warn('Validation Failed:', {
+            path: req.path,
+            method: req.method,
+            errors: errors.array().map(e => e.msg)
+        });
         return res.status(400).json({
             error: 'Validation failed',
             details: errors.array().map(e => e.msg)
@@ -70,7 +75,7 @@ exports.validateBillingRates = [
 exports.validateGodownStock = [
     body('category')
         .notEmpty().withMessage('Category is required')
-        .isIn(['medium', 'super_small']).withMessage('Category must be medium or super_small'),
+        .isIn(['Medium', 'Super Small']).withMessage('Category must be Medium or Super Small'),
     body('quantity')
         .notEmpty().withMessage('Quantity is required')
         .isInt({ min: 1 }).withMessage('Quantity must be a positive integer'),
@@ -78,19 +83,30 @@ exports.validateGodownStock = [
 ];
 
 exports.validateGodownInvoice = [
-    body('customer_name')
-        .notEmpty().withMessage('Customer name is required'),
-    body('total_amount')
-        .notEmpty().withMessage('Total amount is required')
-        .isFloat({ min: 0.01 }).withMessage('Total amount must be greater than 0'),
-    body('items')
-        .isArray({ min: 1 }).withMessage('At least one item is required'),
-    body('items.*.description')
-        .notEmpty().withMessage('Each item must have a description'),
-    body('items.*.quantity')
-        .isInt({ min: 1 }).withMessage('Each item quantity must be >= 1'),
-    body('items.*.rate')
-        .isFloat({ min: 0 }).withMessage('Each item rate must be >= 0'),
+    body().custom((value, { req }) => {
+        if (!req.body.customer_id && !req.body.customer_name) {
+            throw new Error('Either Customer ID or Customer Name is required');
+        }
+        if (req.body.customer_id && isNaN(req.body.customer_id)) {
+            throw new Error('Customer ID must be an integer');
+        }
+        return true;
+    }),
+    body('invoice_date')
+        .notEmpty().withMessage('Invoice date is required')
+        .isISO8601().withMessage('Invalid date format'),
+    body('category')
+        .notEmpty().withMessage('Category is required')
+        .isIn(['Medium', 'Super Small']).withMessage('Category must be Medium or Super Small'),
+    body('bags')
+        .notEmpty().withMessage('Bags is required')
+        .isInt({ min: 1 }).withMessage('Bags must be at least 1'),
+    body('rate')
+        .notEmpty().withMessage('Rate is required')
+        .isFloat({ min: 0.01 }).withMessage('Rate must be greater than 0'),
+    body('discount_amount')
+        .optional()
+        .isFloat({ min: 0 }).withMessage('Discount amount must be >= 0'),
     validate
 ];
 

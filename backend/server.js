@@ -19,7 +19,9 @@ const app = express();
 
 // Security Middleware
 // Add security headers with helmet
-app.use(helmet());
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 // Trust Railway/Vercel proxy — required for rate limiting and correct IP detection
 app.set('trust proxy', 1);
@@ -32,14 +34,17 @@ const corsOptions = {
 
         const isAllowed =
             origin === 'http://localhost:3000' ||
+            /^http:\/\/192\.168\.\d+\.\d+:3000$/.test(origin) ||
             /^https:\/\/.*\.vercel\.app$/.test(origin) ||
+            origin === 'https://bhandari-sugar.vercel.app' ||
             (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL);
 
         if (isAllowed) {
             callback(null, true);
         } else {
             console.warn(`CORS blocked request from origin: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
+            // Return null, false to deny CORS without throwing a generic 500 error
+            callback(null, false);
         }
     },
     credentials: true,
