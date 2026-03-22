@@ -198,57 +198,53 @@ exports.getSummary = async () => {
 
 exports.getCustomerSummary = async () => {
     const query = `
-        WITH customer_totals AS (
+        WITH invoice_base AS (
             SELECT
+                gi.id,
                 COALESCE(
                     gi.customer_id::text,
                     CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
                 ) as cust_ref,
-                COALESCE(MAX(c.name), MAX(gi.customer_name)) as name,
-                COALESCE(MAX(c.mobile), MAX(gi.customer_mobile)) as mobile,
-                COALESCE(SUM(gi.total_amount), 0) AS total_billed,
-                COALESCE((
-                    SELECT SUM(gp.amount)
-                    FROM godown_payments gp
-                    JOIN godown_invoices gi2 ON gp.godown_invoice_id = gi2.id
-                    WHERE COALESCE(
-                        gi2.customer_id::text,
-                        CONCAT('manual:', COALESCE(gi2.customer_name, ''), ':', COALESCE(gi2.customer_mobile, ''))
-                    ) = COALESCE(
-                        gi.customer_id::text,
-                        CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
-                    )
-                ), 0) AS total_paid
+                COALESCE(c.name, gi.customer_name) as name,
+                COALESCE(c.mobile, gi.customer_mobile) as mobile,
+                gi.total_amount
             FROM godown_invoices gi
             LEFT JOIN customers c ON c.id = gi.customer_id
-            GROUP BY COALESCE(
-                gi.customer_id::text,
-                CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
-            )
+        ),
+        customer_totals AS (
+            SELECT
+                cust_ref,
+                MAX(name) as name,
+                MAX(mobile) as mobile,
+                COALESCE(SUM(total_amount), 0) AS total_billed
+            FROM invoice_base
+            GROUP BY cust_ref
+        ),
+        customer_payments AS (
+            SELECT
+                ib.cust_ref,
+                COALESCE(SUM(gp.amount), 0) AS total_paid
+            FROM invoice_base ib
+            LEFT JOIN godown_payments gp ON gp.godown_invoice_id = ib.id
+            GROUP BY ib.cust_ref
         ),
         customer_categories AS (
             SELECT
-                COALESCE(
-                    gi.customer_id::text,
-                    CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
-                ) as cust_ref,
+                ib.cust_ref,
                 gii.category,
                 SUM(gii.bags)::INTEGER AS total_bags,
                 ROUND(SUM(gii.bags * gii.rate)::NUMERIC, 2) AS category_amount
-            FROM godown_invoices gi
-            JOIN godown_invoice_items gii ON gii.godown_invoice_id = gi.id
-            GROUP BY COALESCE(
-                gi.customer_id::text,
-                CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
-            ), gii.category
+            FROM invoice_base ib
+            JOIN godown_invoice_items gii ON gii.godown_invoice_id = ib.id
+            GROUP BY ib.cust_ref, gii.category
         )
         SELECT
             ct.cust_ref as id,
             ct.name,
             ct.mobile,
             ct.total_billed,
-            ct.total_paid,
-            (ct.total_billed - ct.total_paid) AS pending_balance,
+            COALESCE(cp.total_paid, 0) as total_paid,
+            (ct.total_billed - COALESCE(cp.total_paid, 0)) AS pending_balance,
             COALESCE(SUM(cc.total_bags), 0)::INTEGER AS total_bags,
             COALESCE(
                 json_agg(
@@ -262,8 +258,9 @@ exports.getCustomerSummary = async () => {
                 '[]'::json
             ) AS categories
         FROM customer_totals ct
+        LEFT JOIN customer_payments cp ON cp.cust_ref = ct.cust_ref
         LEFT JOIN customer_categories cc ON cc.cust_ref = ct.cust_ref
-        GROUP BY ct.cust_ref, ct.name, ct.total_billed, ct.total_paid
+        GROUP BY ct.cust_ref, ct.name, ct.mobile, ct.total_billed, cp.total_paid
         ORDER BY pending_balance DESC, ct.name
     `;
     const res = await db.query(query);
