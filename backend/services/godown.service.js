@@ -24,9 +24,22 @@ exports.addStock = async (category, quantity) => {
 
 // Create GST Invoice
 exports.createInvoice = async (data) => {
-    const { customer_id, invoice_date, category, bags, rate, discount_amount = 0, created_by } = data;
+    const {
+        customer_id,
+        customer_name,
+        customer_mobile,
+        invoice_date,
+        category,
+        bags,
+        rate,
+        discount_amount = 0,
+        created_by
+    } = data;
 
     if (!bags || isNaN(bags) || bags <= 0) throw new Error('Bags must be a valid number greater than zero.');
+    if (!customer_id && !customer_name) throw new Error('Customer ID or Custom Name must be provided.');
+    if (!customer_id && !customer_mobile) throw new Error('Customer mobile must be provided.');
+
     if (!rate || isNaN(rate) || rate <= 0) throw new Error('Rate must be a valid number greater than zero.');
     if (isNaN(discount_amount) || discount_amount < 0) throw new Error('Discount cannot be negative.');
     if (!['Medium', 'Super Small'].includes(category)) throw new Error('Invalid category.');
@@ -70,10 +83,23 @@ exports.createInvoice = async (data) => {
         // 3. Insert Invoice
         const invoiceRes = await client.query(`
             INSERT INTO godown_invoices 
-            (invoice_number, customer_id, invoice_date, base_amount, sgst_amount, cgst_amount, discount_amount, total_amount, status, created_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            (invoice_number, customer_id, customer_name, customer_mobile, invoice_date, base_amount, sgst_amount, cgst_amount, discount_amount, total_amount, status, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
-        `, [invoice_number, customer_id, invoice_date, base_amount, sgst_amount, cgst_amount, discount_amount, total_amount, 'unpaid', created_by]);
+        `, [
+            invoice_number,
+            customer_id || null,
+            customer_name || null,
+            customer_mobile || null,
+            invoice_date,
+            base_amount,
+            sgst_amount,
+            cgst_amount,
+            discount_amount,
+            total_amount,
+            'unpaid',
+            created_by
+        ]);
 
         const invoiceId = invoiceRes.rows[0].id;
 
@@ -174,30 +200,52 @@ exports.getCustomerSummary = async () => {
     const query = `
         WITH customer_totals AS (
             SELECT
-                gi.customer_id,
+                COALESCE(
+                    gi.customer_id::text,
+                    CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
+                ) as cust_ref,
+                COALESCE(MAX(c.name), MAX(gi.customer_name)) as name,
+                COALESCE(MAX(c.mobile), MAX(gi.customer_mobile)) as mobile,
                 COALESCE(SUM(gi.total_amount), 0) AS total_billed,
                 COALESCE((
                     SELECT SUM(gp.amount)
                     FROM godown_payments gp
                     JOIN godown_invoices gi2 ON gp.godown_invoice_id = gi2.id
-                    WHERE gi2.customer_id = gi.customer_id
+                    WHERE COALESCE(
+                        gi2.customer_id::text,
+                        CONCAT('manual:', COALESCE(gi2.customer_name, ''), ':', COALESCE(gi2.customer_mobile, ''))
+                    ) = COALESCE(
+                        gi.customer_id::text,
+                        CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
+                    )
                 ), 0) AS total_paid
             FROM godown_invoices gi
-            GROUP BY gi.customer_id
+            LEFT JOIN customers c ON c.id = gi.customer_id
+            GROUP BY COALESCE(
+                gi.customer_id::text,
+                CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
+            )
         ),
         customer_categories AS (
             SELECT
-                gi.customer_id,
+                COALESCE(
+                    gi.customer_id::text,
+                    CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
+                ) as cust_ref,
                 gii.category,
                 SUM(gii.bags)::INTEGER AS total_bags,
                 ROUND(SUM(gii.bags * gii.rate)::NUMERIC, 2) AS category_amount
             FROM godown_invoices gi
             JOIN godown_invoice_items gii ON gii.godown_invoice_id = gi.id
-            GROUP BY gi.customer_id, gii.category
+            GROUP BY COALESCE(
+                gi.customer_id::text,
+                CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
+            ), gii.category
         )
         SELECT
-            c.id,
-            c.name,
+            ct.cust_ref as id,
+            ct.name,
+            ct.mobile,
             ct.total_billed,
             ct.total_paid,
             (ct.total_billed - ct.total_paid) AS pending_balance,
@@ -214,10 +262,9 @@ exports.getCustomerSummary = async () => {
                 '[]'::json
             ) AS categories
         FROM customer_totals ct
-        JOIN customers c ON c.id = ct.customer_id
-        LEFT JOIN customer_categories cc ON cc.customer_id = ct.customer_id
-        GROUP BY c.id, c.name, ct.total_billed, ct.total_paid
-        ORDER BY pending_balance DESC, c.name
+        LEFT JOIN customer_categories cc ON cc.cust_ref = ct.cust_ref
+        GROUP BY ct.cust_ref, ct.name, ct.total_billed, ct.total_paid
+        ORDER BY pending_balance DESC, ct.name
     `;
     const res = await db.query(query);
     return res.rows.map((row) => {
@@ -228,6 +275,7 @@ exports.getCustomerSummary = async () => {
         return {
             id: row.id,
             name: row.name,
+            mobile: row.mobile || '',
             total_billed: parseFloat(row.total_billed || 0),
             total_paid: parseFloat(row.total_paid || 0),
             pending_balance: parseFloat(row.pending_balance || 0),
@@ -245,10 +293,11 @@ exports.getPendingInvoices = async () => {
     const query = `
         SELECT 
             i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
-            c.name as customer_name,
+            COALESCE(c.name, i.customer_name) as customer_name,
+            COALESCE(c.mobile, i.customer_mobile) as customer_mobile,
             (i.total_amount - COALESCE((SELECT SUM(amount) FROM godown_payments WHERE godown_invoice_id = i.id), 0)) as pending_amount
         FROM godown_invoices i
-        JOIN customers c ON i.customer_id = c.id
+        LEFT JOIN customers c ON i.customer_id = c.id
         WHERE i.status != 'paid'
         ORDER BY i.invoice_date ASC
     `;
@@ -260,10 +309,11 @@ exports.getAllInvoices = async () => {
     const query = `
         SELECT 
             i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
-            c.name as customer_name,
+            COALESCE(c.name, i.customer_name) as customer_name,
+            COALESCE(c.mobile, i.customer_mobile) as customer_mobile,
             (i.total_amount - COALESCE((SELECT SUM(amount) FROM godown_payments WHERE godown_invoice_id = i.id), 0)) as pending_amount
         FROM godown_invoices i
-        JOIN customers c ON i.customer_id = c.id
+        LEFT JOIN customers c ON i.customer_id = c.id
         ORDER BY i.invoice_date DESC
     `;
     const res = await db.query(query);
@@ -279,8 +329,8 @@ exports.getInvoiceById = async (id) => {
     const invRes = await db.query(`
         SELECT
             i.*,
-            c.name,
-            c.mobile,
+            COALESCE(c.name, i.customer_name) as name,
+            COALESCE(c.mobile, i.customer_mobile) as mobile,
             c.address,
             COALESCE((
                 SELECT SUM(gp.amount)
@@ -293,7 +343,7 @@ exports.getInvoiceById = async (id) => {
                 WHERE gp.godown_invoice_id = i.id
             ), 0)) AS pending_amount
         FROM godown_invoices i
-        JOIN customers c ON i.customer_id = c.id
+        LEFT JOIN customers c ON i.customer_id = c.id
         WHERE i.id = $1
     `, [id]);
 

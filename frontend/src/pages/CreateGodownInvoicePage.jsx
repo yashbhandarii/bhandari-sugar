@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -11,11 +11,10 @@ import { printInvoice, shareInvoice } from '../utils/thermalPrinter';
 const formatMoney = (value) => `Rs ${Number(value || 0).toFixed(2)}`;
 
 const CreateGodownInvoicePage = () => {
-    const [customers, setCustomers] = useState([]);
-    const [loadingCustomers, setLoadingCustomers] = useState(true);
     const [submitting, setSubmitting] = useState(false);
 
-    const [customerId, setCustomerId] = useState('');
+    const [customerName, setCustomerName] = useState('');
+    const [customerMobile, setCustomerMobile] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
     const [category, setCategory] = useState('Medium');
     const [bags, setBags] = useState('');
@@ -30,28 +29,16 @@ const CreateGodownInvoicePage = () => {
     const bluetoothSupported = typeof navigator !== 'undefined' && 'bluetooth' in navigator;
     const shareSupported = typeof navigator !== 'undefined' && 'share' in navigator;
 
-    useEffect(() => {
-        const fetchCustomers = async () => {
-            try {
-                const res = await api.get('/customers');
-                const customerData = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-                setCustomers(customerData);
-            } catch (err) {
-                toast.error('Failed to load customers');
-                setCustomers([]);
-            } finally {
-                setLoadingCustomers(false);
-            }
-        };
-
-        fetchCustomers();
-    }, []);
-
     const handleCreateInvoice = async (e) => {
         e.preventDefault();
 
-        if (!customerId) {
-            toast.error('Please select a customer.');
+        if (!customerName.trim()) {
+            toast.error('Please enter customer name.');
+            return;
+        }
+
+        if (!/^\d{10}$/.test(customerMobile.trim())) {
+            toast.error('Customer mobile must be exactly 10 digits.');
             return;
         }
 
@@ -63,7 +50,8 @@ const CreateGodownInvoicePage = () => {
         setSubmitting(true);
         try {
             const payload = {
-                customer_id: customerId,
+                customer_name: customerName.trim(),
+                customer_mobile: customerMobile.trim(),
                 invoice_date: invoiceDate,
                 category,
                 bags: parseInt(bags, 10),
@@ -85,7 +73,8 @@ const CreateGodownInvoicePage = () => {
             }
 
             setShowSuccess(true);
-            setCustomerId('');
+            setCustomerName('');
+            setCustomerMobile('');
             setBags('');
             setRate('');
             setDiscountAmount('0');
@@ -164,6 +153,7 @@ const CreateGodownInvoicePage = () => {
                                 <div className="mt-2 space-y-1 text-sm text-gray-600">
                                     <p><span className="font-medium">Invoice #:</span> {lastInvoice.invoice_number}</p>
                                     <p><span className="font-medium">Customer:</span> {lastInvoice.name}</p>
+                                    <p><span className="font-medium">Mobile:</span> {lastInvoice.mobile || 'N/A'}</p>
                                     <p><span className="font-medium">Amount:</span> {formatMoney(lastInvoice.total_amount)}</p>
                                 </div>
                             )}
@@ -216,23 +206,22 @@ const CreateGodownInvoicePage = () => {
                     <Card title="Invoice Details">
                         <form onSubmit={handleCreateInvoice} className="space-y-4">
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
-                                    <label className="mb-1 block text-sm font-medium text-gray-700">Customer</label>
-                                    <select
-                                        value={customerId}
-                                        onChange={(e) => setCustomerId(e.target.value)}
-                                        className="w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary disabled:bg-gray-100"
-                                        disabled={loadingCustomers}
-                                        required
-                                    >
-                                        <option value="">Select Customer...</option>
-                                        {(customers || []).map((customer) => (
-                                            <option key={customer.id} value={customer.id}>
-                                                {customer.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
+                                <Input
+                                    label="Customer Name"
+                                    value={customerName}
+                                    onChange={(e) => setCustomerName(e.target.value)}
+                                    placeholder="Enter customer name"
+                                    required
+                                />
+
+                                <Input
+                                    label="Mobile Number"
+                                    type="tel"
+                                    value={customerMobile}
+                                    onChange={(e) => setCustomerMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                                    placeholder="10-digit mobile number"
+                                    required
+                                />
 
                                 <Input
                                     label="Invoice Date"

@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS godown_invoices (
     id SERIAL PRIMARY KEY,
     invoice_number VARCHAR(50) UNIQUE NOT NULL,
     customer_id INTEGER REFERENCES customers(id),
+    customer_name VARCHAR(255),
+    customer_mobile VARCHAR(20),
     invoice_date DATE NOT NULL,
     base_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
     sgst_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -107,6 +109,9 @@ CREATE TABLE IF NOT EXISTS godown_invoices (
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE godown_invoices ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255);
+ALTER TABLE godown_invoices ADD COLUMN IF NOT EXISTS customer_mobile VARCHAR(20);
 
 -- 8. Create Godown Invoice Items Table
 CREATE TABLE IF NOT EXISTS godown_invoice_items (

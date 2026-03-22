@@ -85,13 +85,30 @@ exports.validateGodownStock = [
 exports.validateGodownInvoice = [
     body().custom((value, { req }) => {
         if (!req.body.customer_id && !req.body.customer_name) {
-            throw new Error('Either Customer ID or Customer Name is required');
+            throw new Error('Customer name is required');
         }
         if (req.body.customer_id && isNaN(req.body.customer_id)) {
             throw new Error('Customer ID must be an integer');
         }
+        if (!req.body.customer_id && !req.body.customer_mobile) {
+            throw new Error('Customer mobile is required');
+        }
         return true;
     }),
+    body('customer_name')
+        .custom((value, { req }) => {
+            if (!req.body.customer_id && !value?.trim()) {
+                throw new Error('Customer name is required');
+            }
+            return true;
+        }),
+    body('customer_mobile')
+        .custom((value, { req }) => {
+            if (!req.body.customer_id && !/^\d{10}$/.test((value || '').trim())) {
+                throw new Error('Customer mobile must be exactly 10 digits');
+            }
+            return true;
+        }),
     body('invoice_date')
         .notEmpty().withMessage('Invoice date is required')
         .isISO8601().withMessage('Invalid date format'),
