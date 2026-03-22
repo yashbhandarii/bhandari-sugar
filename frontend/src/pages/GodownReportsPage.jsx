@@ -28,11 +28,6 @@ const GodownReportsPage = () => {
     const [sharingId, setSharingId] = useState(null);
     const shareSupported = typeof navigator !== 'undefined' && 'share' in navigator;
 
-    const fetchInvoiceForPrint = async (invoiceId) => {
-        const res = await api.get(`/godown/invoices/${invoiceId}`);
-        return res.data;
-    };
-
     const fetchData = async () => {
         setLoading(true);
         try {
@@ -52,6 +47,21 @@ const GodownReportsPage = () => {
             toast.error('Failed to load Godown reports.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchInvoiceForPrint = async (invoiceId) => {
+        try {
+            const res = await api.get(`/godown/invoices/${invoiceId}`);
+            return res.data;
+        } catch (error) {
+            if (error.response?.status === 404) {
+                await fetchData();
+                toast.error('This invoice is no longer available. The report list has been refreshed.');
+                return null;
+            }
+
+            throw error;
         }
     };
 
@@ -86,6 +96,13 @@ const GodownReportsPage = () => {
             setIsPaymentModalOpen(false);
             fetchData();
         } catch (err) {
+            if (err.response?.status === 404) {
+                setIsPaymentModalOpen(false);
+                await fetchData();
+                toast.error('This invoice is no longer available. The report list has been refreshed.');
+                return;
+            }
+
             toast.error(err.response?.data?.error || 'Failed to process payment.');
         } finally {
             setProcessingPayment(false);
@@ -104,7 +121,12 @@ const GodownReportsPage = () => {
             link.click();
             link.remove();
         } catch (error) {
-            toast.error('Failed to download invoice PDF');
+            if (error.response?.status === 404) {
+                await fetchData();
+                toast.error('This invoice is no longer available. The report list has been refreshed.');
+            } else {
+                toast.error('Failed to download invoice PDF');
+            }
         } finally {
             setDownloadingId(null);
         }
@@ -114,6 +136,7 @@ const GodownReportsPage = () => {
         setSharingId(invoiceId);
         try {
             const invoice = await fetchInvoiceForPrint(invoiceId);
+            if (!invoice) return;
             await shareInvoice(invoice);
         } catch (error) {
             if (error?.name === 'AbortError') {
@@ -130,6 +153,7 @@ const GodownReportsPage = () => {
         setPrintingId(invoiceId);
         try {
             const invoice = await fetchInvoiceForPrint(invoiceId);
+            if (!invoice) return;
             await printInvoice(invoice);
             toast.success('Invoice sent to Bluetooth printer.');
         } catch (error) {
