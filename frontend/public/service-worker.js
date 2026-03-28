@@ -66,10 +66,11 @@ self.addEventListener('fetch', event => {
             fetch(request)
                 .then(response => {
                     if (response.status === 200) {
-                        const cloned = response.clone();
+                        const cloned1 = response.clone();
+                        const cloned2 = response.clone();
                         caches.open(CACHE_NAME).then(cache => {
-                            cache.put(request, cloned);
-                            cache.put('/index.html', response.clone());
+                            cache.put(request, cloned1);
+                            cache.put('/index.html', cloned2);
                         });
                     }
                     return response;
