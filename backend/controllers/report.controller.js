@@ -250,17 +250,12 @@ exports.downloadReport = async (req, res) => {
             const agingData = await advancedReportService.getAgingReport();
             reportTitle = 'Aging Report';
             dateRange = new Date().toISOString().split('T')[0];
-            // Flatten aging data for PDF
-            const items = [];
+                        // Flatten aging data into a single array for PDF
+            let flatItems = [];
             Object.keys(agingData.by_bucket).forEach(bucket => {
-                items.push({
-                    bucket: bucket,
-                    total: agingData.by_bucket[bucket].total,
-                    count: agingData.by_bucket[bucket].count,
-                    items: agingData.by_bucket[bucket].data
-                });
+                flatItems = flatItems.concat(agingData.by_bucket[bucket].data);
             });
-            data = items;
+            data = flatItems;
         } else if (type === 'discount') {
             const discountData = await advancedReportService.getDiscountImpactReport(date ? 'day' : 'month', date);
             reportTitle = 'Discount Impact Report';
@@ -275,6 +270,9 @@ exports.downloadReport = async (req, res) => {
             const period = req.query.period || (date ? 'day' : 'month');
             const customerData = await advancedReportService.getCustomerSummary(period, date);
             reportTitle = 'Customer Summary Report';
+            dateRange = `${customerData.start_date} to ${customerData.end_date}`;
+            data = customerData.data || [];
+            summary = customerData.totals || null;
         } else if (type === 'customer-ledger') {
             const customerId = req.query.customerId;
             if (!customerId) return res.status(400).json({ error: 'customerId required for ledger' });
