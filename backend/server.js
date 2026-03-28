@@ -111,17 +111,21 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
     try {
-        await ensureGodownInvoiceSchema();
-
         app.listen(PORT, () => {
             console.log(`Server is running on port ${PORT}`);
 
             // Initialize Backup Scheduler
             const { initScheduler } = require('./cron/scheduler');
             initScheduler();
+
+            // Run migrations asynchronously after server starts listening
+            // to prevent health check timeouts during deployment
+            ensureGodownInvoiceSchema().catch(err => {
+                console.error('Failed to verify Godown invoice schema:', err);
+            });
         });
     } catch (error) {
-        console.error('Failed to verify Godown invoice schema:', error);
+        console.error('Failed to start server:', error);
         process.exit(1);
     }
 }
