@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import Card from './ui/Card';
 import Button from './ui/Button';
@@ -50,13 +51,20 @@ const PaymentForm = ({ customers, onSubmit, isSubmitting }) => {
         if (!selectedInvoiceId) return pendingAmount;
         const inv = unpaidInvoices.find(i => i.id === parseInt(selectedInvoiceId));
         if (!inv) return 0;
-        // Backend handles specific invoice pending too, but for UI we calculate local
-        // NOTE: inv.total_amount is the full amount. Invoices list from billing/customer 
-        // doesn't usually return current pending per invoice unless calculated.
-        // For simplicity, we show the total customer pending unless an invoice is picked.
-        // If an invoice is picked, we should ideally know its pending.
-        return parseFloat(inv.total_amount || 0);
+        // Use actual pending_amount from backend which accounts for payments and adjustments
+        return parseFloat(inv.pending_amount || inv.total_amount || 0);
     }, [selectedInvoiceId, unpaidInvoices, pendingAmount]);
+
+    const selectedInvoiceDetails = useMemo(() => {
+        if (!selectedInvoiceId) return null;
+        const inv = unpaidInvoices.find(i => i.id === parseInt(selectedInvoiceId));
+        if (!inv) return null;
+        return {
+            total: parseFloat(inv.total_amount || 0),
+            paid: parseFloat(inv.amount_paid || 0) + parseFloat(inv.amount_adjusted || 0),
+            remaining: parseFloat(inv.pending_amount || 0)
+        };
+    }, [selectedInvoiceId, unpaidInvoices]);
 
     const finalPending = useMemo(() => {
         const amt = parseFloat(amount) || 0;
@@ -120,6 +128,14 @@ const PaymentForm = ({ customers, onSubmit, isSubmitting }) => {
                             <option key={c.id} value={c.id}>{c.name} {c.mobile ? `- ${c.mobile}` : ''}</option>
                         ))}
                     </select>
+                    {selectedCustomerId && (
+                        <Link
+                            to={`/manager/ledger/${selectedCustomerId}`}
+                            className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                        >
+                            📒 View Ledger
+                        </Link>
+                    )}
                 </div>
 
                 {selectedCustomerId && (
@@ -136,8 +152,8 @@ const PaymentForm = ({ customers, onSubmit, isSubmitting }) => {
                                 <option value="">General Account Payment</option>
                                 {unpaidInvoices.map(inv => (
                                     <option key={inv.id} value={inv.id}>
-                                        Inv #{inv.id} - ₹{parseFloat(inv.total_amount).toLocaleString()} ({new Date(inv.delivery_date).toLocaleDateString()})
-                                    </option>
+                                    Inv #{inv.id} - ₹{parseFloat(inv.total_amount).toLocaleString()} (Paid: ₹{parseFloat(inv.amount_paid || 0).toLocaleString()}, Remaining: ₹{parseFloat(inv.pending_amount || inv.total_amount).toLocaleString()}) ({new Date(inv.delivery_date).toLocaleDateString()})
+                                </option>
                                 ))}
                             </select>
                         </div>
@@ -147,9 +163,26 @@ const PaymentForm = ({ customers, onSubmit, isSubmitting }) => {
                                 <span className="text-sm font-medium">Selected Pending</span>
                                 <span className="text-lg font-bold">₹{activeInvoicePending.toLocaleString()}</span>
                             </div>
-                            <div className="text-xs text-blue-600">
-                                {selectedInvoiceId ? `Applying to Invoice #${selectedInvoiceId}` : 'Applying to general account pending'}
-                            </div>
+                            {selectedInvoiceDetails ? (
+                                <div className="space-y-1 mt-2">
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-blue-600">Invoice Total:</span>
+                                        <span className="font-semibold">₹{selectedInvoiceDetails.total.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-green-600">Already Paid / Adjusted:</span>
+                                        <span className="font-semibold text-green-700">₹{selectedInvoiceDetails.paid.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-red-600">Remaining:</span>
+                                        <span className="font-semibold text-red-700">₹{selectedInvoiceDetails.remaining.toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-xs text-blue-600">
+                                    Applying to general account pending (FIFO — oldest invoice first)
+                                </div>
+                            )}
                         </div>
                     </>
                 )}

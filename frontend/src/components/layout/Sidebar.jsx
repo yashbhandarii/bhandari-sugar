@@ -26,7 +26,6 @@ const Sidebar = ({ isOpen, onClose }) => {
         { name: 'New Delivery Sheet', href: '/driver/delivery-sheet/new', icon: PlusCircleIcon, roles: ['owner'] },
         { name: 'Payments', href: '/manager/payments', icon: CurrencyRupeeIcon, roles: ['manager', 'owner'] },
         { name: 'Customers', href: '/manager/customers', icon: UsersIcon, roles: ['manager', 'owner'] },
-        { name: 'Reports', href: '/manager/reports', icon: ChartBarIcon, roles: ['manager', 'owner'] },
         { name: 'Advanced Reports', href: '/reports', icon: DocumentTextIcon, roles: ['manager', 'owner'] },
         { name: 'Audit Log', href: '/owner/audit-log', icon: ClipboardDocumentListIcon, roles: ['owner'] },
 

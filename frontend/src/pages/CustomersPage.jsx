@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import PageHeader from '../components/ui/PageHeader';
-import Table, { TableRow, TableCell } from '../components/ui/Table';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import Button from '../components/ui/Button';
 import CustomerModal from '../components/CustomerModal';
@@ -150,58 +149,58 @@ const CustomersPage = () => {
                 </Button>
             </div>
 
-            <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-gray-100">
-                <Table headers={['Name', 'Mobile', 'Address', 'Actions']}>
-                    {customers.map((c) => (
-                        <TableRow key={c.id}>
-                            <TableCell data-label="Name" className="font-medium text-gray-900 min-w-[120px]">{c.name}</TableCell>
-                            <TableCell data-label="Mobile" className="min-w-[110px]">{c.mobile}</TableCell>
-                            <TableCell data-label="Address" className="truncate max-w-[150px] sm:max-w-xs">{c.address || '-'}</TableCell>
-                            <TableCell data-label="Actions" className="actions-cell">
-                                <div className="flex gap-1 sm:gap-2 flex-wrap items-center justify-start sm:justify-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {customers.map((c) => (
+                    <div key={c.id} className="bg-white rounded-xl shadow-premium border border-gray-100 flex flex-col hover:border-primary/30 transition-colors">
+                        <div className="p-4 flex-1">
+                            <h3 className="font-bold text-gray-900 text-lg mb-1">{c.name}</h3>
+                            <div className="text-sm font-medium text-gray-700 bg-gray-50 inline-block px-2 py-1 rounded-md mb-2">
+                                📞 {c.mobile}
+                            </div>
+                            <p className="text-sm text-gray-500 line-clamp-2">
+                                📍 {c.address || 'No address provided'}
+                            </p>
+                        </div>
+                        <div className="p-3 bg-gray-50/50 border-t border-gray-100 flex flex-wrap gap-2 items-center justify-start sm:justify-between rounded-b-xl">
+                            <div className="flex gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 custom-scrollbar">
+                                <button
+                                    onClick={() => handleEdit(c)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
+                                >
+                                    <PencilSquareIcon className="w-4 h-4" /> Edit
+                                </button>
+                                <button
+                                    onClick={() => window.location.href = `/manager/ledger/${c.id}`}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors whitespace-nowrap"
+                                >
+                                    <BookOpenIcon className="w-4 h-4" /> Ledger
+                                </button>
+                                <button
+                                    onClick={() => handleDownloadStatement(c.id, c.name)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors whitespace-nowrap"
+                                >
+                                    <DocumentArrowDownIcon className="w-4 h-4" /> PDF
+                                </button>
+                                {user?.role === 'owner' && (
                                     <button
-                                        onClick={() => handleEdit(c)}
-                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg"
-                                        title="Edit"
+                                        onClick={() => confirmDelete(c.id)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors whitespace-nowrap"
                                     >
-                                        <PencilSquareIcon className="w-5 h-5" />
+                                        <TrashIcon className="w-4 h-4" /> Delete
                                     </button>
-                                    <button
-                                        onClick={() => window.location.href = `/manager/ledger/${c.id}`}
-                                        className="p-1.5 text-gray-600 hover:bg-gray-50 rounded-lg"
-                                        title="View Ledger"
-                                    >
-                                        <BookOpenIcon className="w-5 h-5" />
-                                    </button>
-                                    <button
-                                        onClick={() => handleDownloadStatement(c.id, c.name)}
-                                        className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg"
-                                        title="Download Statement (PDF)"
-                                    >
-                                        <DocumentArrowDownIcon className="w-5 h-5" />
-                                    </button>
-                                    {user?.role === 'owner' && (
-                                        <button
-                                            onClick={() => confirmDelete(c.id)}
-                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
-                                            title="Delete"
-                                        >
-                                            <TrashIcon className="w-5 h-5" />
-                                        </button>
-                                    )}
-                                </div>
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                    {customers.length === 0 && (
-                        <TableRow>
-                            <TableCell colSpan={4} className="text-center text-gray-500 py-8">
-                                No customers found. Click "Add Customer" to create one.
-                            </TableCell>
-                        </TableRow>
-                    )}
-                </Table>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ))}
             </div>
+
+            {customers.length === 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-500">
+                    No customers found. Click "Add Customer" to create one.
+                </div>
+            )}
+
 
             {/* Pagination Controls */}
             {totalPages > 1 && (

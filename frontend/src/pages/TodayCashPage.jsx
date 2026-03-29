@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
@@ -8,6 +9,7 @@ import toast from 'react-hot-toast';
 const todayStr = () => new Date().toISOString().split('T')[0];
 
 const TodayCashPage = () => {
+    const navigate = useNavigate();
     const [selectedDate, setSelectedDate] = useState(todayStr());
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -128,6 +130,9 @@ const TodayCashPage = () => {
 
                         <Button onClick={downloadPDF} disabled={downloading || loading}>
                             {downloading ? 'Generating...' : '⬇ Download PDF'}
+                        </Button>
+                        <Button variant="secondary" onClick={() => navigate('/reports')}>
+                            ← Back
                         </Button>
                     </div>
                 }

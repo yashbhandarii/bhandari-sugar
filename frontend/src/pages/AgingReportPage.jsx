@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
@@ -6,6 +7,7 @@ import Button from '../components/ui/Button';
 import toast from 'react-hot-toast';
 
 const AgingReportPage = () => {
+    const navigate = useNavigate();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -59,9 +61,14 @@ const AgingReportPage = () => {
                 title="Aging Report"
                 subtitle="Track overdue invoices grouped by age"
                 action={
-                    <Button onClick={downloadPDF}>
-                        Download PDF
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button onClick={downloadPDF}>
+                            Download PDF
+                        </Button>
+                        <Button variant="secondary" onClick={() => navigate('/reports')}>
+                            ← Back
+                        </Button>
+                    </div>
                 }
             />
 

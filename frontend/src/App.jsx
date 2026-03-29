@@ -19,7 +19,6 @@ const BillingPage = lazy(() => import('./pages/BillingPage'));
 const PaymentCollectionPage = lazy(() => import('./pages/PaymentCollectionPage'));
 const CustomerLedgerPage = lazy(() => import('./pages/CustomerLedgerPage'));
 const CustomersPage = lazy(() => import('./pages/CustomersPage'));
-const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 
 // Advanced Reports Pages
 const ReportsDashboard = lazy(() => import('./pages/ReportsDashboard'));
@@ -113,11 +112,6 @@ const AppRoutes = () => {
                   <CustomersPage />
                 </ProtectedRoute>
               } />
-              <Route path="/manager/reports" element={
-                <ProtectedRoute allowedRoles={['manager', 'owner']}>
-                  <ReportsPage />
-                </ProtectedRoute>
-              } />
 
               {/* Advanced Reports Routes */}
               <Route path="/reports" element={
@@ -154,7 +148,7 @@ const AppRoutes = () => {
               } />
               <Route path="/owner/reports" element={
                 <ProtectedRoute allowedRoles={['owner']}>
-                  <ReportsPage />
+                  <ReportsDashboard />
                 </ProtectedRoute>
               } />
               <Route path="/owner/audit-log" element={

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
@@ -7,6 +8,7 @@ import Input from '../components/ui/Input';
 import toast from 'react-hot-toast';
 
 const DiscountImpactPage = () => {
+    const navigate = useNavigate();
     const [type, setType] = useState('month');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [data, setData] = useState(null);
@@ -65,9 +67,14 @@ const DiscountImpactPage = () => {
                 title="Discount Impact Report"
                 subtitle="Analyze discount trends and their impact on revenue"
                 action={
-                    <Button onClick={downloadPDF}>
-                        Download PDF
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button onClick={downloadPDF}>
+                            Download PDF
+                        </Button>
+                        <Button variant="secondary" onClick={() => navigate('/reports')}>
+                            ← Back
+                        </Button>
+                    </div>
                 }
             />
 

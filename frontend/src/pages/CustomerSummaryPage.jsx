@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -9,6 +10,7 @@ import api from '../services/api';
 const formatMoney = (value) => `Rs ${Number(value || 0).toFixed(2)}`;
 
 const CustomerSummaryPage = () => {
+    const navigate = useNavigate();
     const [type, setType] = useState('month');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [data, setData] = useState(null);
@@ -71,7 +73,12 @@ const CustomerSummaryPage = () => {
             <PageHeader
                 title="Customer Summary Report"
                 subtitle="Sales, payments, pending, and category-wise bag totals by customer"
-                action={<Button onClick={downloadPDF}>Download PDF</Button>}
+                action={
+                    <div className="flex gap-2">
+                        <Button onClick={downloadPDF}>Download PDF</Button>
+                        <Button variant="secondary" onClick={() => navigate('/reports')}>← Back</Button>
+                    </div>
+                }
             />
 
             <Card>

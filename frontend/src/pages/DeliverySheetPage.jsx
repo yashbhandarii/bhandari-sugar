@@ -22,6 +22,9 @@ const DeliverySheetPage = () => {
     const { id } = useParams();
 
     const [truckNumber, setTruckNumber] = useState('');
+    const [selectedDriverId, setSelectedDriverId] = useState(user?.id || '');
+    const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
+    const [drivers, setDrivers] = useState([]);
     const [sheetId, setSheetId] = useState(id || null);
     const [status, setStatus] = useState('draft');
     const [loading, setLoading] = useState(!!id);
@@ -49,10 +52,28 @@ const DeliverySheetPage = () => {
     useEffect(() => {
         fetchCustomers();
         fetchCategories();
+        fetchDrivers();
         if (id) {
             fetchSheetDetails(id);
         }
     }, [id]);
+
+    const fetchDrivers = async () => {
+        try {
+            const res = await api.get('/auth/drivers');
+            setDrivers(res.data || []);
+            // Default to current user if they're in the list
+            if (user?.id && !selectedDriverId) {
+                setSelectedDriverId(user.id);
+            }
+        } catch (e) {
+            console.error('Error fetching drivers', e);
+            // Fallback: just show current user
+            if (user) {
+                setDrivers([{ id: user.id, name: user.name }]);
+            }
+        }
+    };
 
     const fetchCategories = async () => {
         try {
@@ -117,11 +138,13 @@ const DeliverySheetPage = () => {
 
     const handleCreateSheet = async () => {
         if (!truckNumber.trim()) return toast.error('Enter Truck Number');
+        if (!selectedDriverId) return toast.error('Select a Driver');
+        if (!deliveryDate) return toast.error('Select Delivery Date');
         try {
             const res = await api.post('/delivery-sheets', {
                 truck_number: truckNumber,
-                created_by: user.id,
-                date: new Date(),
+                created_by: parseInt(selectedDriverId),
+                date: deliveryDate,
             });
             setSheetId(res.data.id);
             setStatus(res.data.status);
@@ -343,22 +366,45 @@ const DeliverySheetPage = () => {
             {/* Create sheet form */}
             {!sheetId && (
                 <Card title="Start New Sheet" className="max-w-md mx-auto">
-                    <Input
-                        id="truckNumber"
-                        name="truckNumber"
-                        label="Truck Number"
-                        value={truckNumber}
-                        onChange={(e) => setTruckNumber(e.target.value)}
-                        placeholder="e.g. MH-12-AB-1234"
-                    />
-                    <Input
-                        id="driverName"
-                        name="driverName"
-                        label="Driver Name"
-                        value={user?.name || 'Driver'}
-                        disabled
-                    />
-                    <Button onClick={handleCreateSheet} fullWidth className="mt-4">Start Sheet</Button>
+                    <div className="space-y-4">
+                        <Input
+                            id="truckNumber"
+                            name="truckNumber"
+                            label="Truck Number"
+                            value={truckNumber}
+                            onChange={(e) => setTruckNumber(e.target.value)}
+                            placeholder="e.g. MH-12-AB-1234"
+                        />
+                        <div>
+                            <label htmlFor="driverSelect" className="block text-sm font-medium text-gray-700 mb-1">Driver Name</label>
+                            <select
+                                id="driverSelect"
+                                name="driverSelect"
+                                value={selectedDriverId}
+                                onChange={(e) => setSelectedDriverId(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm bg-white"
+                                required
+                            >
+                                <option value="">Select Driver</option>
+                                {drivers.map(d => (
+                                    <option key={d.id} value={d.id}>{d.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="deliveryDate" className="block text-sm font-medium text-gray-700 mb-1">Delivery Date</label>
+                            <input
+                                id="deliveryDate"
+                                name="deliveryDate"
+                                type="date"
+                                value={deliveryDate}
+                                onChange={(e) => setDeliveryDate(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm bg-white"
+                                required
+                            />
+                        </div>
+                        <Button onClick={handleCreateSheet} fullWidth className="mt-2">Start Sheet</Button>
+                    </div>
                 </Card>
             )}
 

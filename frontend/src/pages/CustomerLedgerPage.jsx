@@ -13,7 +13,7 @@ const CustomerLedgerPage = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!customerId) {
+        if (!customerId || customerId === 'undefined') {
             setLoading(false);
             return;
         }
@@ -50,7 +50,31 @@ const CustomerLedgerPage = () => {
                 }));
 
                 // Merge and Sort by Date (Oldest First)
-                const all = [...payments, ...invoices].sort((a, b) => new Date(a.date) - new Date(b.date));
+                // On the same date, invoices (debits) appear before payments (credits)
+                const typePriority = { invoice: 0, payment: 1 };
+                const all = [...payments, ...invoices].sort((a, b) => {
+                    let dateAKey, dateBKey;
+                    
+                    const dateAObj = new Date(a.date);
+                    if (isNaN(dateAObj.getTime())) {
+                        dateAKey = '9999-12-31';
+                    } else {
+                        dateAKey = dateAObj.toISOString().split('T')[0];
+                    }
+                    
+                    const dateBObj = new Date(b.date);
+                    if (isNaN(dateBObj.getTime())) {
+                        dateBKey = '9999-12-31';
+                    } else {
+                        dateBKey = dateBObj.toISOString().split('T')[0];
+                    }
+                    
+                    if (dateAKey < dateBKey) return -1;
+                    if (dateAKey > dateBKey) return 1;
+                    
+                    // Same date: invoices first, then payments
+                    return (typePriority[a.type] || 0) - (typePriority[b.type] || 0);
+                });
 
                 // Calculate Running Balance
                 let runningBalance = 0;

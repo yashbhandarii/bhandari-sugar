@@ -26,6 +26,7 @@ const GodownReportsPage = () => {
     const [downloadingId, setDownloadingId] = useState(null);
     const [printingId, setPrintingId] = useState(null);
     const [sharingId, setSharingId] = useState(null);
+    const [isDownloadingReport, setIsDownloadingReport] = useState(false);
     const shareSupported = typeof navigator !== 'undefined' && 'share' in navigator;
 
     const fetchData = async () => {
@@ -132,6 +133,25 @@ const GodownReportsPage = () => {
         }
     };
 
+    const handleDownloadGodownReport = async () => {
+        setIsDownloadingReport(true);
+        try {
+            const res = await api.get('/godown/reports/download', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            const dateStr = new Date().toISOString().split('T')[0];
+            link.setAttribute('download', `Godown_Report_${dateStr}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            toast.error('Failed to download report');
+        } finally {
+            setIsDownloadingReport(false);
+        }
+    };
+
     const handleShareInvoice = async (invoiceId) => {
         setSharingId(invoiceId);
         try {
@@ -176,6 +196,23 @@ const GodownReportsPage = () => {
             <PageHeader
                 title="Godown Performance & Reports"
                 subtitle="Exclusive insights for Godown sales, stock, collections, and customer-wise bag movement."
+                action={
+                    <Button
+                        onClick={handleDownloadGodownReport}
+                        disabled={isDownloadingReport}
+                        variant="primary"
+                        className="flex items-center gap-2"
+                    >
+                        <svg className={`w-5 h-5 ${isDownloadingReport ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            {isDownloadingReport ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            )}
+                        </svg>
+                        {isDownloadingReport ? 'Preparing...' : 'Download Report'}
+                    </Button>
+                }
             />
 
             {summary && (
