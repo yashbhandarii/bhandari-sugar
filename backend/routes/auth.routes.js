@@ -3,6 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const authController = require('../controllers/auth.controller');
 const { authLimiter } = require('../middleware/rateLimiter');
+const { verifyToken } = require('../middleware/auth.middleware');
 
 // Validation middleware for login
 const loginValidation = [
@@ -29,5 +30,8 @@ const validationHandler = (req, res, next) => {
 
 // POST /api/auth/login
 router.post('/login', authLimiter, loginValidation, validationHandler, authController.login);
+
+// GET /api/auth/drivers - Get list of all drivers
+router.get('/drivers', verifyToken, authController.getDrivers);
 
 module.exports = router;

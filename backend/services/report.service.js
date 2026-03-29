@@ -155,6 +155,7 @@ exports.getRiskyCustomers = async () => {
         else if (days > 7) status = 'orange';
 
         return {
+            id: r.id,
             customer_name: r.name,
             pending_amount: parseFloat(r.pending_amount),
             last_payment_date: r.last_payment_date,

@@ -153,51 +153,138 @@ exports.addPayment = async (data) => {
 
         let payment = null;
 
-        // STEP 5: Insert Payment Record (if amount > 0)
-        if (parseFloat(amount) > 0) {
-            const insertQuery = `
-                INSERT INTO payments (invoice_id, customer_id, amount, payment_method, payment_date, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING *
-            `;
-            const values = [
-                invoice_id || null,
-                customer_id,
-                amount,
-                payment_method,
-                finalDate,
-                created_by || null
-            ];
+        if (invoice_id) {
+            // TARGETED INVOICE PAYMENT PATH (unchanged)
+            // STEP 5: Insert Payment Record (if amount > 0)
+            if (parseFloat(amount) > 0) {
+                const insertQuery = `
+                    INSERT INTO payments (invoice_id, customer_id, amount, payment_method, payment_date, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    RETURNING *
+                `;
+                const values = [
+                    invoice_id,
+                    customer_id,
+                    amount,
+                    payment_method,
+                    finalDate,
+                    created_by || null
+                ];
 
-            const insertRes = await client.query(insertQuery, values);
-            payment = insertRes.rows[0];
-        }
+                const insertRes = await client.query(insertQuery, values);
+                payment = insertRes.rows[0];
+            }
 
-        // STEP 5b: Insert Adjustment Record (if discount > 0)
-        if (discountVal > 0) {
-            if (!invoice_id) {
+            // STEP 5b: Insert Adjustment Record (if discount > 0)
+            if (discountVal > 0) {
+                await client.query(`
+                    INSERT INTO payment_adjustments (invoice_id, adjustment_type, amount, reason, created_by)
+                    VALUES ($1, 'discount', $2, $3, $4)
+                `, [invoice_id, discountVal, reason, created_by || null]);
+            }
+
+            // STEP 6 & 7: Update Invoice Status strictly
+            if (invoiceTotals) {
+                const new_total_reduced = invoiceTotals.total_paid + invoiceTotals.total_adj + parseFloat(amount) + discountVal;
+
+                let new_status = 'unpaid';
+                if (new_total_reduced >= invoiceTotals.total_amount - 0.01) {
+                    new_status = 'paid';
+                } else if (new_total_reduced > 0) {
+                    new_status = 'partial';
+                }
+
+                await client.query('UPDATE invoices SET status = $1 WHERE id = $2', [new_status, invoice_id]);
+            }
+        } else {
+            // GENERAL ACCOUNT PAYMENT — FIFO allocation to oldest invoices first
+            if (discountVal > 0) {
                 throw new Error('Discounts can only be applied to specific invoices, not general account payments');
             }
 
-            await client.query(`
-                INSERT INTO payment_adjustments (invoice_id, adjustment_type, amount, reason, created_by)
-                VALUES ($1, 'discount', $2, $3, $4)
-            `, [invoice_id, discountVal, reason, created_by || null]);
-        }
+            let remainingAmount = parseFloat(amount);
 
-        // STEP 6 & 7: Update Invoice Status strictly
-        if (invoice_id && invoiceTotals) {
-            const new_total_reduced = invoiceTotals.total_paid + invoiceTotals.total_adj + parseFloat(amount) + discountVal;
+            if (remainingAmount > 0) {
+                // Fetch all unpaid/partial invoices for this customer, oldest first
+                const unpaidInvoicesRes = await client.query(
+                    `SELECT i.id, i.total_amount,
+                        COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id), 0) as total_paid,
+                        COALESCE((SELECT SUM(pa.amount) FROM payment_adjustments pa WHERE pa.invoice_id = i.id), 0) as total_adj
+                    FROM invoices i
+                    WHERE i.customer_id = $1 AND i.is_deleted = false AND i.status != 'paid'
+                    ORDER BY i.created_at ASC
+                    FOR UPDATE`,
+                    [customer_id]
+                );
 
-            let new_status = 'unpaid';
-            if (new_total_reduced >= invoiceTotals.total_amount - 0.01) {
-                new_status = 'paid';
-            } else if (new_total_reduced > 0) {
-                new_status = 'partial';
+                const unpaidInvoices = unpaidInvoicesRes.rows;
+
+                for (const inv of unpaidInvoices) {
+                    if (remainingAmount <= 0.001) break;
+
+                    const invTotal = parseFloat(inv.total_amount);
+                    const invPaid = parseFloat(inv.total_paid);
+                    const invAdj = parseFloat(inv.total_adj);
+                    const invPending = invTotal - invPaid - invAdj;
+
+                    if (invPending <= 0.001) continue;
+
+                    // Allocate either the full pending or what's left of the payment
+                    const allocate = Math.min(remainingAmount, invPending);
+
+                    // Insert payment row linked to this specific invoice
+                    const insertRes = await client.query(`
+                        INSERT INTO payments (invoice_id, customer_id, amount, payment_method, payment_date, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING *
+                    `, [inv.id, customer_id, allocate, payment_method, finalDate, created_by || null]);
+
+                    if (!payment) {
+                        payment = insertRes.rows[0]; // Return the first payment as the main reference
+                    }
+
+                    // Update invoice status
+                    const newTotalReduced = invPaid + invAdj + allocate;
+                    let newStatus = 'unpaid';
+                    if (newTotalReduced >= invTotal - 0.01) {
+                        newStatus = 'paid';
+                    } else if (newTotalReduced > 0) {
+                        newStatus = 'partial';
+                    }
+                    await client.query('UPDATE invoices SET status = $1 WHERE id = $2', [newStatus, inv.id]);
+
+                    remainingAmount -= allocate;
+                }
+
+                // If there's leftover after allocating to all invoices, insert as unlinked payment
+                if (remainingAmount > 0.001) {
+                    const insertRes = await client.query(`
+                        INSERT INTO payments (invoice_id, customer_id, amount, payment_method, payment_date, created_by)
+                        VALUES (NULL, $1, $2, $3, $4, $5)
+                        RETURNING *
+                    `, [customer_id, remainingAmount, payment_method, finalDate, created_by || null]);
+
+                    if (!payment) {
+                        payment = insertRes.rows[0];
+                    }
+                }
             }
-
-            await client.query('UPDATE invoices SET status = $1 WHERE id = $2', [new_status, invoice_id]);
         }
+
+        // Compute new pending for response
+        const newPendingRes = await client.query(
+            'SELECT COALESCE(SUM(total_amount), 0) as total FROM invoices WHERE customer_id = $1 AND is_deleted = false',
+            [customer_id]
+        );
+        const newPaidRes = await client.query(
+            'SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE customer_id = $1',
+            [customer_id]
+        );
+        const newAdjRes = await client.query(
+            'SELECT COALESCE(SUM(pa.amount), 0) as total FROM payment_adjustments pa JOIN invoices i ON pa.invoice_id = i.id WHERE i.customer_id = $1',
+            [customer_id]
+        );
+        const newPending = parseFloat(newPendingRes.rows[0].total) - parseFloat(newPaidRes.rows[0].total) - parseFloat(newAdjRes.rows[0].total);
 
         // Optional Audit Logging
         if (created_by && (payment || discountVal > 0)) {
@@ -213,7 +300,11 @@ exports.addPayment = async (data) => {
 
         // STEP 8: COMMIT
         await client.query('COMMIT');
-        return payment || { status: 'success', discount: discountVal };
+        return {
+            ...(payment || { status: 'success', discount: discountVal }),
+            old_pending: customer_pending,
+            new_pending: newPending
+        };
 
     } catch (error) {
         await client.query('ROLLBACK');

@@ -20,6 +20,7 @@ router.get('/invoices/:id', godownController.getInvoice);
 router.get('/invoices/:id/download', godownController.downloadInvoice);
 
 // Reports (Open to all verified users)
+router.get('/reports/download', restrictToPrivileged, godownController.downloadGodownReport);
 router.get('/reports/summary', godownController.getSummary);
 router.get('/reports/customer-summary', godownController.getCustomerSummary);
 router.get('/reports/pending', godownController.getPendingInvoices);

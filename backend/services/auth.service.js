@@ -44,3 +44,14 @@ exports.login = async (mobile, password) => {
         }
     };
 };
+
+/**
+ * Get all users with role 'driver'.
+ * @returns {Promise<Array>} List of drivers { id, name }
+ */
+exports.getDrivers = async () => {
+    const result = await db.query(
+        "SELECT id, name FROM users WHERE role = 'driver' ORDER BY name ASC"
+    );
+    return result.rows;
+};

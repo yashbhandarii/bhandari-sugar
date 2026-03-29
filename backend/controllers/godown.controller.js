@@ -25,10 +25,10 @@ exports.getInvoice = async (req, res) => {
     try {
         const { id } = req.params;
         const invoice = await godownService.getInvoiceById(id);
-        if (!invoice) {
+        if (!invoice || !invoice.data) {
             return res.status(404).json({ error: 'Invoice not found' });
         }
-        res.json(invoice);
+        res.json(invoice.data);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -46,8 +46,8 @@ exports.addPayment = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
     try {
-        const result = await godownService.getSummary();
-        res.json(result);
+        const { data } = await godownService.getSummary();
+        res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -55,8 +55,8 @@ exports.getSummary = async (req, res) => {
 
 exports.getCustomerSummary = async (req, res) => {
     try {
-        const result = await godownService.getCustomerSummary();
-        res.json(result);
+        const { data } = await godownService.getCustomerSummary();
+        res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -64,8 +64,8 @@ exports.getCustomerSummary = async (req, res) => {
 
 exports.getPendingInvoices = async (req, res) => {
     try {
-        const result = await godownService.getPendingInvoices();
-        res.json(result);
+        const { data } = await godownService.getPendingInvoices();
+        res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -73,8 +73,8 @@ exports.getPendingInvoices = async (req, res) => {
 
 exports.getAllInvoices = async (req, res) => {
     try {
-        const result = await godownService.getAllInvoices();
-        res.json(result);
+        const { data } = await godownService.getAllInvoices();
+        res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -82,8 +82,8 @@ exports.getAllInvoices = async (req, res) => {
 
 exports.getStock = async (req, res) => {
     try {
-        const result = await godownService.getStock();
-        res.json(result);
+        const { data } = await godownService.getStock();
+        res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -93,14 +93,40 @@ exports.downloadInvoice = async (req, res) => {
     const { id } = req.params;
     try {
         const invoice = await godownService.getInvoiceById(id);
-        if (!invoice) {
+        if (!invoice || !invoice.data) {
             return res.status(404).json({ error: 'Invoice not found' });
         }
 
         const pdfService = require('../services/pdf.service');
-        pdfService.generateGodownInvoicePDF(invoice, res);
+        pdfService.generateGodownInvoicePDF(invoice.data, res);
     } catch (error) {
         console.error('Error downloading invoice:', error);
         if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+exports.downloadGodownReport = async (req, res) => {
+    try {
+        const [summary, stock, customers, pendingInvoices] = await Promise.all([
+            godownService.getSummary(),
+            godownService.getStock(),
+            godownService.getCustomerSummary(),
+            godownService.getPendingInvoices()
+        ]);
+
+        const pdfService = require('../services/pdf.service');
+        
+        pdfService.generateReportPDF({
+            reportType: 'Godown Report',
+            dateRange: new Date().toISOString().split('T')[0],
+            summary: summary.data,
+            stock: stock.data,
+            customers: customers.data,
+            pendingInvoices: pendingInvoices.data
+        }, res);
+
+    } catch (error) {
+        console.error('Error downloading godown report:', error);
+        if (!res.headersSent) res.status(500).json({ error: error.stack || error.message || 'Internal server error' });
     }
 };

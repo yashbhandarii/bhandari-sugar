@@ -484,7 +484,10 @@ exports.previewInvoices = async (delivery_sheet_id, billingData = {}) => {
  */
 exports.getCustomerBilling = async (customer_id) => {
     const query = `
-        SELECT i.*, ds.date as delivery_date, ds.truck_number
+        SELECT i.*, ds.date as delivery_date, ds.truck_number,
+            COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id), 0) as amount_paid,
+            COALESCE((SELECT SUM(pa.amount) FROM payment_adjustments pa WHERE pa.invoice_id = i.id), 0) as amount_adjusted,
+            i.total_amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id), 0) - COALESCE((SELECT SUM(pa.amount) FROM payment_adjustments pa WHERE pa.invoice_id = i.id), 0) as pending_amount
         FROM invoices i
         JOIN delivery_sheets ds ON i.delivery_sheet_id = ds.id
         WHERE i.customer_id = $1 AND i.is_deleted = false

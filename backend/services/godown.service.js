@@ -185,178 +185,204 @@ exports.addPayment = async (godown_invoice_id, amount, payment_method, payment_d
 // --- Reports ---
 
 exports.getSummary = async () => {
-    const query = `
-        SELECT 
-            (SELECT COALESCE(SUM(total_amount), 0) FROM godown_invoices WHERE DATE(invoice_date) = CURRENT_DATE) as today_sales,
-            (SELECT COALESCE(SUM(total_amount), 0) FROM godown_invoices WHERE invoice_date >= date_trunc('week', CURRENT_DATE)) as week_sales,
-            (SELECT COALESCE(SUM(total_amount), 0) FROM godown_invoices WHERE invoice_date >= date_trunc('month', CURRENT_DATE)) as month_sales,
-            (SELECT COALESCE(SUM(total_amount), 0) - COALESCE((SELECT SUM(amount) FROM godown_payments), 0) FROM godown_invoices) as total_pending
-    `;
-    const res = await db.query(query);
-    return res.rows[0];
+    try {
+        const query = `
+            SELECT 
+                (SELECT COALESCE(SUM(total_amount), 0) FROM godown_invoices WHERE DATE(invoice_date) = CURRENT_DATE) as today_sales,
+                (SELECT COALESCE(SUM(total_amount), 0) FROM godown_invoices WHERE invoice_date >= date_trunc('week', CURRENT_DATE)) as week_sales,
+                (SELECT COALESCE(SUM(total_amount), 0) FROM godown_invoices WHERE invoice_date >= date_trunc('month', CURRENT_DATE)) as month_sales,
+                (SELECT COALESCE(SUM(total_amount), 0) - COALESCE((SELECT SUM(amount) FROM godown_payments), 0) FROM godown_invoices) as total_pending
+        `;
+        const res = await db.query(query);
+        return { data: res.rows[0] };
+    } catch (err) {
+        throw new Error(`Failed to get summary: ${err.message}`);
+    }
 };
 
 exports.getCustomerSummary = async () => {
-    const query = `
-        WITH invoice_base AS (
+    try {
+        const query = `
+            WITH invoice_base AS (
+                SELECT
+                    gi.id,
+                    COALESCE(
+                        gi.customer_id::text,
+                        CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
+                    ) as cust_ref,
+                    COALESCE(c.name, gi.customer_name) as name,
+                    COALESCE(c.mobile, gi.customer_mobile) as mobile,
+                    gi.total_amount
+                FROM godown_invoices gi
+                LEFT JOIN customers c ON c.id = gi.customer_id
+            ),
+            customer_totals AS (
+                SELECT
+                    cust_ref,
+                    MAX(name) as name,
+                    MAX(mobile) as mobile,
+                    COALESCE(SUM(total_amount), 0) AS total_billed
+                FROM invoice_base
+                GROUP BY cust_ref
+            ),
+            customer_payments AS (
+                SELECT
+                    ib.cust_ref,
+                    COALESCE(SUM(gp.amount), 0) AS total_paid
+                FROM invoice_base ib
+                LEFT JOIN godown_payments gp ON gp.godown_invoice_id = ib.id
+                GROUP BY ib.cust_ref
+            ),
+            customer_categories AS (
+                SELECT
+                    ib.cust_ref,
+                    gii.category,
+                    SUM(gii.bags)::INTEGER AS total_bags,
+                    ROUND(SUM(gii.bags * gii.rate)::NUMERIC, 2) AS category_amount
+                FROM invoice_base ib
+                JOIN godown_invoice_items gii ON gii.godown_invoice_id = ib.id
+                GROUP BY ib.cust_ref, gii.category
+            )
             SELECT
-                gi.id,
+                ct.cust_ref as id,
+                ct.name,
+                ct.mobile,
+                ct.total_billed,
+                COALESCE(cp.total_paid, 0) as total_paid,
+                (ct.total_billed - COALESCE(cp.total_paid, 0)) AS pending_balance,
+                COALESCE(SUM(cc.total_bags), 0)::INTEGER AS total_bags,
                 COALESCE(
-                    gi.customer_id::text,
-                    CONCAT('manual:', COALESCE(gi.customer_name, ''), ':', COALESCE(gi.customer_mobile, ''))
-                ) as cust_ref,
-                COALESCE(c.name, gi.customer_name) as name,
-                COALESCE(c.mobile, gi.customer_mobile) as mobile,
-                gi.total_amount
-            FROM godown_invoices gi
-            LEFT JOIN customers c ON c.id = gi.customer_id
-        ),
-        customer_totals AS (
-            SELECT
-                cust_ref,
-                MAX(name) as name,
-                MAX(mobile) as mobile,
-                COALESCE(SUM(total_amount), 0) AS total_billed
-            FROM invoice_base
-            GROUP BY cust_ref
-        ),
-        customer_payments AS (
-            SELECT
-                ib.cust_ref,
-                COALESCE(SUM(gp.amount), 0) AS total_paid
-            FROM invoice_base ib
-            LEFT JOIN godown_payments gp ON gp.godown_invoice_id = ib.id
-            GROUP BY ib.cust_ref
-        ),
-        customer_categories AS (
-            SELECT
-                ib.cust_ref,
-                gii.category,
-                SUM(gii.bags)::INTEGER AS total_bags,
-                ROUND(SUM(gii.bags * gii.rate)::NUMERIC, 2) AS category_amount
-            FROM invoice_base ib
-            JOIN godown_invoice_items gii ON gii.godown_invoice_id = ib.id
-            GROUP BY ib.cust_ref, gii.category
-        )
-        SELECT
-            ct.cust_ref as id,
-            ct.name,
-            ct.mobile,
-            ct.total_billed,
-            COALESCE(cp.total_paid, 0) as total_paid,
-            (ct.total_billed - COALESCE(cp.total_paid, 0)) AS pending_balance,
-            COALESCE(SUM(cc.total_bags), 0)::INTEGER AS total_bags,
-            COALESCE(
-                json_agg(
-                    json_build_object(
-                        'category', cc.category,
-                        'bags', cc.total_bags,
-                        'amount', cc.category_amount
-                    )
-                    ORDER BY cc.category
-                ) FILTER (WHERE cc.category IS NOT NULL),
-                '[]'::json
-            ) AS categories
-        FROM customer_totals ct
-        LEFT JOIN customer_payments cp ON cp.cust_ref = ct.cust_ref
-        LEFT JOIN customer_categories cc ON cc.cust_ref = ct.cust_ref
-        GROUP BY ct.cust_ref, ct.name, ct.mobile, ct.total_billed, cp.total_paid
-        ORDER BY pending_balance DESC, ct.name
-    `;
-    const res = await db.query(query);
-    return res.rows.map((row) => {
-        const categories = Array.isArray(row.categories)
-            ? row.categories
-            : JSON.parse(row.categories || '[]');
+                    json_agg(
+                        json_build_object(
+                            'category', cc.category,
+                            'bags', cc.total_bags,
+                            'amount', cc.category_amount
+                        )
+                        ORDER BY cc.category
+                    ) FILTER (WHERE cc.category IS NOT NULL),
+                    '[]'::json
+                ) AS categories
+            FROM customer_totals ct
+            LEFT JOIN customer_payments cp ON cp.cust_ref = ct.cust_ref
+            LEFT JOIN customer_categories cc ON cc.cust_ref = ct.cust_ref
+            GROUP BY ct.cust_ref, ct.name, ct.mobile, ct.total_billed, cp.total_paid
+            ORDER BY pending_balance DESC, ct.name
+        `;
+        const res = await db.query(query);
+        const data = res.rows.map((row) => {
+            const categories = Array.isArray(row.categories)
+                ? row.categories
+                : JSON.parse(row.categories || '[]');
 
-        return {
-            id: row.id,
-            name: row.name,
-            mobile: row.mobile || '',
-            total_billed: parseFloat(row.total_billed || 0),
-            total_paid: parseFloat(row.total_paid || 0),
-            pending_balance: parseFloat(row.pending_balance || 0),
-            total_bags: parseInt(row.total_bags || 0, 10),
-            categories: categories.map((category) => ({
-                category: category.category,
-                bags: parseInt(category.bags || 0, 10),
-                amount: parseFloat(category.amount || 0)
-            }))
-        };
-    });
+            return {
+                id: row.id,
+                name: row.name,
+                mobile: row.mobile || '',
+                total_billed: parseFloat(row.total_billed || 0),
+                total_paid: parseFloat(row.total_paid || 0),
+                pending_balance: parseFloat(row.pending_balance || 0),
+                total_bags: parseInt(row.total_bags || 0, 10),
+                categories: categories.map((category) => ({
+                    category: category.category,
+                    bags: parseInt(category.bags || 0, 10),
+                    amount: parseFloat(category.amount || 0)
+                }))
+            };
+        });
+        
+        return { data };
+    } catch (err) {
+        throw new Error(`Failed to get customer summary: ${err.message}`);
+    }
 };
 
 exports.getPendingInvoices = async () => {
-    const query = `
-        SELECT 
-            i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
-            COALESCE(c.name, i.customer_name) as customer_name,
-            COALESCE(c.mobile, i.customer_mobile) as customer_mobile,
-            (i.total_amount - COALESCE((SELECT SUM(amount) FROM godown_payments WHERE godown_invoice_id = i.id), 0)) as pending_amount
-        FROM godown_invoices i
-        LEFT JOIN customers c ON i.customer_id = c.id
-        WHERE i.status != 'paid'
-        ORDER BY i.invoice_date ASC
-    `;
-    const res = await db.query(query);
-    return res.rows;
+    try {
+        const query = `
+            SELECT 
+                i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
+                COALESCE(c.name, i.customer_name) as customer_name,
+                COALESCE(c.mobile, i.customer_mobile) as customer_mobile,
+                (i.total_amount - COALESCE((SELECT SUM(amount) FROM godown_payments WHERE godown_invoice_id = i.id), 0)) as pending_amount
+            FROM godown_invoices i
+            LEFT JOIN customers c ON i.customer_id = c.id
+            WHERE i.status != 'paid'
+            ORDER BY i.invoice_date ASC
+        `;
+        const res = await db.query(query);
+        return { data: res.rows };
+    } catch (err) {
+        throw new Error(`Failed to get pending invoices: ${err.message}`);
+    }
 };
 
 exports.getAllInvoices = async () => {
-    const query = `
-        SELECT 
-            i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
-            COALESCE(c.name, i.customer_name) as customer_name,
-            COALESCE(c.mobile, i.customer_mobile) as customer_mobile,
-            (i.total_amount - COALESCE((SELECT SUM(amount) FROM godown_payments WHERE godown_invoice_id = i.id), 0)) as pending_amount
-        FROM godown_invoices i
-        LEFT JOIN customers c ON i.customer_id = c.id
-        ORDER BY i.invoice_date DESC
-    `;
-    const res = await db.query(query);
-    return res.rows;
+    try {
+        const query = `
+            SELECT 
+                i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
+                COALESCE(c.name, i.customer_name) as customer_name,
+                COALESCE(c.mobile, i.customer_mobile) as customer_mobile,
+                (i.total_amount - COALESCE((SELECT SUM(amount) FROM godown_payments WHERE godown_invoice_id = i.id), 0)) as pending_amount
+            FROM godown_invoices i
+            LEFT JOIN customers c ON i.customer_id = c.id
+            ORDER BY i.invoice_date DESC
+        `;
+        const res = await db.query(query);
+        return { data: res.rows };
+    } catch (err) {
+        throw new Error(`Failed to get all invoices: ${err.message}`);
+    }
 };
 
 exports.getStock = async () => {
-    const res = await db.query('SELECT category, quantity, updated_at FROM godown_stock');
-    return res.rows;
+    try {
+        const res = await db.query('SELECT category, quantity, updated_at FROM godown_stock');
+        return { data: res.rows };
+    } catch (err) {
+        throw new Error(`Failed to get stock: ${err.message}`);
+    }
 };
 
 exports.getInvoiceById = async (id) => {
-    const invRes = await db.query(`
-        SELECT
-            i.*,
-            COALESCE(c.name, i.customer_name) as name,
-            COALESCE(c.mobile, i.customer_mobile) as mobile,
-            c.address,
-            COALESCE((
-                SELECT SUM(gp.amount)
-                FROM godown_payments gp
-                WHERE gp.godown_invoice_id = i.id
-            ), 0) AS paid_amount,
-            (i.total_amount - COALESCE((
-                SELECT SUM(gp.amount)
-                FROM godown_payments gp
-                WHERE gp.godown_invoice_id = i.id
-            ), 0)) AS pending_amount
-        FROM godown_invoices i
-        LEFT JOIN customers c ON i.customer_id = c.id
-        WHERE i.id = $1
-    `, [id]);
+    try {
+        const invRes = await db.query(`
+            SELECT
+                i.*,
+                COALESCE(c.name, i.customer_name) as name,
+                COALESCE(c.mobile, i.customer_mobile) as mobile,
+                c.address,
+                COALESCE((
+                    SELECT SUM(gp.amount)
+                    FROM godown_payments gp
+                    WHERE gp.godown_invoice_id = i.id
+                ), 0) AS paid_amount,
+                (i.total_amount - COALESCE((
+                    SELECT SUM(gp.amount)
+                    FROM godown_payments gp
+                    WHERE gp.godown_invoice_id = i.id
+                ), 0)) AS pending_amount
+            FROM godown_invoices i
+            LEFT JOIN customers c ON i.customer_id = c.id
+            WHERE i.id = $1
+        `, [id]);
 
-    if (invRes.rows.length === 0) return null;
+        if (invRes.rows.length === 0) return { data: null };
 
-    const invoice = invRes.rows[0];
+        const invoice = invRes.rows[0];
 
-    const itemRes = await db.query(`
-        SELECT category, bags, rate,
-               (bags * rate) as amount
-        FROM godown_invoice_items
-        WHERE godown_invoice_id = $1
-    `, [id]);
+        const itemRes = await db.query(`
+            SELECT category, bags, rate,
+                (bags * rate) as amount
+            FROM godown_invoice_items
+            WHERE godown_invoice_id = $1
+        `, [id]);
 
-    invoice.items = itemRes.rows;
-    invoice.paid_amount = parseFloat(invoice.paid_amount || 0);
-    invoice.pending_amount = parseFloat(invoice.pending_amount || 0);
-    return invoice;
+        invoice.items = itemRes.rows;
+        invoice.paid_amount = parseFloat(invoice.paid_amount || 0);
+        invoice.pending_amount = parseFloat(invoice.pending_amount || 0);
+        return { data: invoice };
+    } catch (err) {
+        throw new Error(`Failed to get invoice by id: ${err.message}`);
+    }
 };

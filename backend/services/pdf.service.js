@@ -39,6 +39,8 @@ exports.generateReportPDF = (data, res) => {
         generatePaymentDelayPDF(doc, data);
     } else if (data.reportType === 'Customer Statement') {
         generateCustomerLedgerPDF(doc, data);
+    } else if (data.reportType === 'Godown Report') {
+        generateGodownReportPDF(doc, data);
     } else {
         // Legacy format (Day/Week/Month Report)
         generateLegacyReportPDF(doc, data);
@@ -556,23 +558,16 @@ exports.generateDeliverySheetPDF = (sheet, res) => {
 
     let y = tableTop + 25;
     doc.font('Helvetica');
-
     let totalMedium = 0;
     let totalSmall = 0;
 
-    // Consolidate items by customer? 
-    // The sheet.items usually contains all items.
-    // If we have multiple entries for same customer, we list them or sum them? 
-    // Usually list them as they are delivery drops? Ref requirements: "No duplicate customer per sheet".
-    // So 1 customer = 1 row usually.
-
+    // Iterate items - Assume one entry per customer as per delivery sheet requirements.
     if (sheet.items) {
         for (const item of sheet.items) {
             // Pagination Check
             if (y > 700) {
                 doc.addPage();
                 y = 50;
-                // Header on new page
                 doc.font('Helvetica-Bold');
                 doc.text('Customer / Item', itemX, y);
                 doc.text('Medium', mediumX, y, { width: 90, align: 'right' });
@@ -582,51 +577,16 @@ exports.generateDeliverySheetPDF = (sheet, res) => {
                 doc.font('Helvetica');
             }
 
+            // Resolve quantities (1=Medium, 2=Super Small). See backend/services/README.md for internal data contract details.
             const mBags = parseInt(item.quantities?.[1] || item.quantities?.['1'] || item.medium_bags || 0);
-            const sBags = parseInt(item.quantities?.[2] || item.quantities?.['2'] || item.super_small_bags || 0); // Assuming 1=Medium, 2=Super Small IDs or map
-
-            // If quantities map is used with IDs, we need to know which ID is which category.
-            // For now, let's fallback to specific properties if available, or try to interpret quantities.
-            // In delivery.service.js getDeliverySheetById, we populate item.quantities = { [catId]: bags }.
-            // We rely on caller to format or we guess.
-            // Let's assume we use the legacy bags columns for display if available, as they are easier.
-            // But wait, getDeliverySheetById result might not have them populated if we use correct schema.
-            // Let's check getDeliverySheetById again.
-            // It returns `...sheetRes.rows[0]` (cols: medium_rate, super_small_rate... but NOT bag totals per item? NO.)
-            // It returns `items` array.
-            // Items query: `SELECT di.id, ...`.
-            // Then it attaches `quantities` map.
-            // It DOES NOT attach `medium_bags` / `super_small_bags` to items unless we calculated it?
-            // Ah, getDeliverySheetById in my previous `view_file` output didn't seem to calculate them for the items array, strictly.
-            // Wait, I should verify `getDeliverySheetById` response structure for items.
-
-            // To be safe, I will iterate quantities.
-            // But I don't have category names here easily unless passed.
-            // For the PDF, let's just print "Medium" and "Super Small" columns and try to fill them.
-            // Getting category IDs: 1 is usually medium, 2 is super small? Not guaranteed.
-            // Fix: Pass resolved data or just list what we have.
-            // Let's assume the standard columns for now.
-
-            // FIX: The backend `getDeliverySheetById` attached `quantities`.
-            // BUT for the PDF we prefer simple structures.
-
-            // Re-reading `delivery.service.js`:
-            // `getDeliverySheetById` returns items with `quantities: { [catId]: bags }`.
-            // We need to map catId to Name.
-            // Since we are in backend service, we can't easily guess IDs.
-            // However, `sheet` object passed here should ideally be "prepared" for PDF.
-
-            // Let's just print what we find.
+            const sBags = parseInt(item.quantities?.[2] || item.quantities?.['2'] || item.super_small_bags || 0);
 
             doc.text(item.customer_name, itemX, y);
-
-            // Try to pull from known keys if passed, or just use 0
             doc.text(mBags.toString(), mediumX, y, { width: 90, align: 'right' });
             doc.text(sBags.toString(), smallX, y, { width: 90, align: 'right' });
 
             totalMedium += mBags;
             totalSmall += sBags;
-
             y += 20;
         }
     }
@@ -846,5 +806,147 @@ function generateCustomerLedgerPDF(doc, data) {
     if (balStatus) {
         y += 15;
         doc.text(balStatus, 300, y, { width: 250, align: 'right' });
+    }
+}
+
+/**
+ * Generate Godown Report PDF
+ */
+function generateGodownReportPDF(doc, data) {
+    const { summary, stock, customers, pendingInvoices } = data;
+
+    let y = 150; // Started below headers printed by generateReportPDF root
+
+    // ==========================================
+    // Section 1: Godown Summary
+    // ==========================================
+    doc.font('Helvetica-Bold').fontSize(14).text('GODOWN SUMMARY', 50, y);
+    y += 20;
+
+    doc.font('Helvetica').fontSize(10);
+    const summaryMetrics = [
+        { label: 'Today Sales', value: summary.today_sales },
+        { label: 'This Week Sales', value: summary.week_sales },
+        { label: 'This Month Sales', value: summary.month_sales },
+        { label: 'Total Pending Bills', value: summary.total_pending }
+    ];
+
+    let xSum = 50;
+    for (const metric of summaryMetrics) {
+        doc.font('Helvetica-Bold').text(`${metric.label}:`, xSum, y, { continued: true });
+        doc.font('Helvetica').text(` Rs ${Number(metric.value || 0).toFixed(2)}`);
+        // Next col or Row
+        if (xSum === 50) {
+            xSum = 300;
+        } else {
+            xSum = 50;
+            y += 20;
+        }
+    }
+    if (xSum === 300) y += 20; // reset if odd number
+    
+    y += 15;
+    doc.moveTo(50, y).lineTo(550, y).stroke();
+    y += 20;
+
+    // ==========================================
+    // Section 2: Current Stock
+    // ==========================================
+    if (y > 650) { doc.addPage(); y = 50; }
+    doc.font('Helvetica-Bold').fontSize(14).text('CURRENT GODOWN STOCK', 50, y);
+    y += 25;
+
+    doc.fontSize(10);
+    doc.text('Category', 50, y);
+    doc.text('Available Bags', 300, y, { width: 100, align: 'right' });
+    y += 15;
+    doc.moveTo(50, y).lineTo(400, y).stroke();
+    y += 10;
+
+    doc.font('Helvetica');
+    for (const item of (stock || [])) {
+        if (y > 700) { doc.addPage(); y = 50; }
+        doc.text(item.category || 'N/A', 50, y);
+        doc.text(item.quantity?.toString() || '0', 300, y, { width: 100, align: 'right' });
+        y += 15;
+    }
+
+    y += 20;
+
+    // ==========================================
+    // Section 3: Customer Summary
+    // ==========================================
+    if (y > 600) { doc.addPage(); y = 50; }
+    doc.font('Helvetica-Bold').fontSize(14).text('CUSTOMER SUMMARY', 50, y);
+    y += 25;
+
+    doc.fontSize(10);
+    doc.text('Customer', 50, y, { width: 150 });
+    doc.text('Bags', 200, y, { width: 60, align: 'right' });
+    doc.text('Pending Amt', 280, y, { width: 100, align: 'right' });
+    y += 15;
+    doc.moveTo(50, y).lineTo(400, y).stroke();
+    y += 15;
+    
+    doc.font('Helvetica');
+    for (const cus of (customers || [])) {
+        if (y > 700) { doc.addPage(); y = 50; }
+        
+        doc.text(cus.name || 'N/A', 50, y, { width: 150, ellipsis: true });
+        doc.text(cus.total_bags?.toString() || '0', 200, y, { width: 60, align: 'right' });
+        
+        const isDebt = parseFloat(cus.pending_balance) > 0;
+        doc.fillColor(isDebt ? '#C0392B' : '#27AE60');
+        doc.text((parseFloat(cus.pending_balance) || 0).toFixed(2), 280, y, { width: 100, align: 'right' });
+        doc.fillColor('#000000');
+        
+        y += 15;
+
+        // Sub categories if any
+        if (cus.categories && cus.categories.length > 0) {
+            doc.fontSize(8).fillColor('#666666');
+            for (const cat of cus.categories) {
+                if (y > 720) { doc.addPage(); y = 50; }
+                doc.text(`  - ${cat.category}: ${cat.bags} bags = Rs ${(cat.amount || 0).toFixed(2)}`, 60, y);
+                y += 12;
+            }
+            doc.fontSize(10).fillColor('#000000');
+            y += 5; // spacing
+        }
+    }
+
+    y += 20;
+
+    // ==========================================
+    // Section 4: Pending Godown Invoices
+    // ==========================================
+    if (y > 600) { doc.addPage(); y = 50; }
+    doc.font('Helvetica-Bold').fontSize(14).text('PENDING GODOWN INVOICES', 50, y);
+    y += 25;
+
+    doc.fontSize(10);
+    doc.text('Invoice #', 50, y, { width: 80 });
+    doc.text('Date', 130, y, { width: 80 });
+    doc.text('Customer', 220, y, { width: 150 });
+    doc.text('Pending', 380, y, { width: 80, align: 'right' });
+    doc.text('Status', 480, y, { width: 70, align: 'right' });
+    y += 15;
+    doc.moveTo(50, y).lineTo(550, y).stroke();
+    y += 15;
+
+    doc.font('Helvetica');
+    for (const inv of (pendingInvoices || [])) {
+        // Exclude completely paid ones if necessary, but getPendingInvoices theoretically filters them
+        if (inv.status === 'paid') continue;
+
+        if (y > 700) { doc.addPage(); y = 50; }
+
+        doc.text(inv.invoice_number, 50, y, { width: 80 });
+        doc.text(new Date(inv.invoice_date).toLocaleDateString(), 130, y, { width: 80 });
+        doc.text(inv.customer_name, 220, y, { width: 150, ellipsis: true });
+        doc.fillColor('#C0392B').text(parseFloat(inv.pending_amount).toFixed(2), 380, y, { width: 80, align: 'right' });
+        doc.fillColor('#000000').text(inv.status.toUpperCase(), 480, y, { width: 70, align: 'right' });
+
+        y += 18;
     }
 }

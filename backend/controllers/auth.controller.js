@@ -18,3 +18,13 @@ exports.login = async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 };
+
+exports.getDrivers = async (req, res) => {
+    try {
+        const drivers = await authService.getDrivers();
+        res.json(drivers);
+    } catch (error) {
+        console.error('Error fetching drivers:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
