@@ -290,6 +290,23 @@ function generateCustomerSummaryPDF(doc, data) {
         totalPending += item.total_pending || 0;
 
         y += 18;
+
+        // Category breakdown sub-rows
+        if (item.categories && item.categories.length > 0) {
+            doc.font('Helvetica');
+            doc.fontSize(8);
+            doc.fillColor('#666666');
+            for (const cat of item.categories) {
+                if (y > 700) {
+                    doc.addPage();
+                    y = 50;
+                }
+                doc.text(`  └ ${cat.category_name}: ${cat.total_bags} bags = Rs ${(cat.category_amount || 0).toFixed(2)}`, nameX + 10, y, { width: 260 });
+                y += 14;
+            }
+            doc.fillColor('#000000');
+            doc.fontSize(9);
+        }
     }
 
     // Totals
