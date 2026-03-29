@@ -12,6 +12,11 @@ root.render(
   </React.StrictMode>
 );
 
-// Register service worker for PWA support
-serviceWorkerRegistration.register();
+// Register service worker for PWA support (only in production)
+if (import.meta.env.PROD) {
+  serviceWorkerRegistration.register();
+} else {
+  // Unregister existing service workers in dev to avoid caching issues
+  serviceWorkerRegistration.unregister();
+}
 
